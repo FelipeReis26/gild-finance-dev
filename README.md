@@ -80,3 +80,4 @@ same shape.
 - Add recurring bill auto-generation (next month's bill appears
   automatically after the current one is paid)
 - Push notifications for bills due soon
+- Testing the auto deploy feature on Netlify

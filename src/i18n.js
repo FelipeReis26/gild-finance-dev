@@ -23,6 +23,7 @@ const strings = {
   ofIncomeSpent: { en: 'of income spent', fr: 'des revenus dépensés', 'pt-BR': 'da renda gasta', it: 'del reddito speso', es: 'de ingresos gastado' },
   ofBudgetUsed: { en: 'of budget used', fr: 'du budget utilisé', 'pt-BR': 'do orçamento utilizado', it: 'del budget utilizzato', es: 'del presupuesto utilizado' },
   categories: { en: 'Categories', fr: 'Catégories', 'pt-BR': 'Categorias', it: 'Categorie', es: 'Categorías' },
+  categoryBreakdown: { en: 'Category breakdown', fr: 'Répartition par catégorie', 'pt-BR': 'Divisão por categoria', it: 'Ripartizione per categoria', es: 'Desglose por categoría' },
   addTransaction: { en: 'Add transaction', fr: 'Ajouter une transaction', 'pt-BR': 'Adicionar transação', it: 'Aggiungi transazione', es: 'Añadir transacción' },
   previousMonth: { en: 'Previous month', fr: 'Mois précédent', 'pt-BR': 'Mês anterior', it: 'Mese precedente', es: 'Mes anterior' },
   nextMonth: { en: 'Next month', fr: 'Mois suivant', 'pt-BR': 'Próximo mês', it: 'Mese successivo', es: 'Mes siguiente' },

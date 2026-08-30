@@ -3,6 +3,80 @@ import { useApp } from '../context/AppContext.jsx'
 const RADIUS = 90
 const CIRC = Math.PI * RADIUS
 
+const DONUT_R = 70
+const DONUT_CIRC = 2 * Math.PI * DONUT_R
+
+function DonutBreakdown({ byCategory, total, symbol, onSelect }) {
+  const segments = byCategory
+    .filter((c) => c.spent > 0)
+    .sort((a, b) => b.spent - a.spent)
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      color: c.accent,
+      pct: total > 0 ? (c.spent / total) * 100 : 0,
+      spent: c.spent
+    }))
+
+  let cursor = 0
+  const arcs = segments.map((seg) => {
+    const length = (seg.pct / 100) * DONUT_CIRC
+    const arc = { ...seg, length, offset: cursor }
+    cursor += length
+    return arc
+  })
+
+  return (
+    <div>
+      <div className="donut-wrap">
+        <svg width="180" height="180" viewBox="0 0 180 180">
+          <circle cx="90" cy="90" r={DONUT_R} fill="none" stroke="var(--glass-border)" strokeWidth="22" />
+          {arcs.map((arc) => (
+            <circle
+              key={arc.id}
+              cx="90"
+              cy="90"
+              r={DONUT_R}
+              fill="none"
+              stroke={arc.color}
+              strokeWidth="22"
+              strokeDasharray={`${arc.length} ${DONUT_CIRC - arc.length}`}
+              strokeDashoffset={-arc.offset}
+              transform="rotate(-90 90 90)"
+              strokeLinecap="butt"
+            />
+          ))}
+          <text x="90" y="84" textAnchor="middle" fontSize="20" fontWeight="700" fill="var(--text-primary)">
+            {symbol}
+            {total.toFixed(0)}
+          </text>
+          <text x="90" y="104" textAnchor="middle" fontSize="11" fill="var(--text-secondary)">
+            {segments.length} categories
+          </text>
+        </svg>
+      </div>
+      <div className="donut-legend">
+        {segments.map((seg) => (
+          <div
+            key={seg.id}
+            className="legend-row"
+            role="button"
+            tabIndex={0}
+            onClick={() => onSelect?.(seg.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onSelect?.(seg.id)
+            }}
+          >
+            <span className="legend-dot" style={{ background: seg.color }} />
+            <span className="legend-name">{seg.name}</span>
+            <span className="legend-pct">{Math.round(seg.pct)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard({ onAddTransaction, onSelectCategory }) {
   const { summary, currency, selectedMonth, changeMonth, monthTrend, t } = useApp()
 
@@ -122,6 +196,15 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
               )
             })}
           </div>
+        </div>
+      )}
+
+      {summary.byCategory.some((c) => c.spent > 0) && (
+        <div className="card">
+          <p className="section-title" style={{ marginBottom: 12 }}>
+            {t('categoryBreakdown')}
+          </p>
+          <DonutBreakdown byCategory={summary.byCategory} total={summary.spent} symbol={s} onSelect={onSelectCategory} />
         </div>
       )}
 

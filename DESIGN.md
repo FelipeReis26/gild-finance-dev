@@ -264,7 +264,7 @@ Full-width 50px plate rows (14px radius, 15/600) with a chevron and `aria-expand
 
 ## App identity mark
 
-The icon is the dial in miniature: on dial black, a Cinzel 600 **G** in champagne gold plays the applied numeral, ringed by a 24-tick chapter ring — quarter marks heavier, the pay-day mark at 12 in gold-light and extended — over three etching-faint guilloché rings and a rehaut. The launch splash centers the same mark at 62% on the full dial-black field. Masters live in `.impeccable/icon-src/` (SVG); shipped rasters (`public/icon-{180,192,512}.png`, the iOS `AppIcon-512@2x.png`, and the three splash PNGs) each carry embedded provenance. Regenerate via qlmanage + sips from the masters.
+The icon is **The Diamond** — the app's original diamond identity reborn in this world: a brilliant-cut diamond in champagne-gold line-work (solid outline; crown, girdle and pavilion facet lines at 0.55 opacity) on dial black. User-chosen from a three-mark hand (coin / diamond / dial). Two stroke weights ship: the master (20/12 at 1024, used for 512 and the iOS 1024) and a heavier small-size cut (34/20, used for 192/180) so the line-work holds at home-screen scale. The launch splash centers the mark at 62% on the full dial-black field. Masters live in `.impeccable/icon-src/` (`gild-icon.svg`, `gild-icon-small.svg`, `gild-splash.svg`); every shipped raster carries embedded provenance. Regenerate via qlmanage + sips.
 
 ## Motion
 

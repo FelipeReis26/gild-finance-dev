@@ -22,18 +22,13 @@ export default function MobileGuard({ onContinue }) {
 
   return (
     <div className="app-shell">
-      <div className="bg-blobs" aria-hidden="true">
-        <span className="blob blob-gold" />
-        <span className="blob blob-blue" />
-        <span className="blob blob-green" />
-      </div>
       <main
         className="app-main"
         style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '100vh' }}
       >
         <div className="screen" style={{ maxWidth: 380, margin: '0 auto' }}>
           <div className="card" style={{ textAlign: 'center' }}>
-            <i className="ti ti-device-mobile" style={{ fontSize: 36, color: 'var(--gold)' }} aria-hidden="true"></i>
+            <i className="ti ti-device-mobile" style={{ fontSize: 36, color: 'var(--text-secondary)' }} aria-hidden="true"></i>
             <p className="section-title" style={{ marginTop: 12, marginBottom: 6 }}>
               {t('openOnPhone')}
             </p>

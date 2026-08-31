@@ -1,6 +1,19 @@
 // Development history of this app, in the order features actually shipped.
 export const changelog = [
   {
+    version: '2.1.0',
+    summary: 'New look, calmer and more honest dashboard, and a slide-out menu',
+    changes: [
+      'A whole new look: a watch-dial face in black and gold — the pay period reads as a power reserve of day ticks, and your top budgets as small dials',
+      'The dashboard now leads with how much is left to spend this pay period and how many days it has to last, instead of a "% of budget used" figure that could read over 100% just because a big unbudgeted expense like rent had landed',
+      'A pace bar shows how fast money is going against how far through the period you are, so overspending is visible before the period ends',
+      'Consistent colours throughout: mint always means money in, apricot money out, and the alert colour is reserved for genuinely over-budget',
+      'Navigation lives in a slide-out menu behind the top-left button, with every screen one tap away',
+      'The trend chart and category breakdown now live under an "Insights" section, and categories with no activity are tucked behind a "Show unused" toggle, so the first thing you see stays glanceable',
+      'Amounts and month names now follow your chosen language properly (correct thousands separators and localised months), and month-over-month figures are shown plainly rather than as an alarming percentage'
+    ]
+  },
+  {
     version: '2.0.0',
     summary: 'Data integrity hardening and weekend-aware pay periods',
     changes: [

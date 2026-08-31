@@ -10,6 +10,8 @@
 // boundary inside this file, so nothing outside db.js needs to know
 // about it or change.
 
+import { localeFor } from './i18n.js'
+
 const KEYS = {
   transactions: 'ft_transactions',
   categories: 'ft_categories',
@@ -226,20 +228,16 @@ export function currentPeriodKey(payDay) {
   return todayTs >= thisPayDate.getTime() ? thisMonthKey : shiftMonthPrefix(thisMonthKey, -1)
 }
 
-const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-const MONTH_FULL = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
-]
-
-export function periodLabel(periodKey, payDay) {
+// Localized period label. Dates here are UTC-constructed, so formatting
+// pins timeZone: 'UTC' to avoid a local-offset day shift.
+export function periodLabel(periodKey, payDay, lang = 'en') {
+  const locale = localeFor(lang)
   if (payDay <= 1) {
     const [y, m] = periodKey.split('-').map(Number)
-    return `${MONTH_FULL[m - 1]} ${y}`
+    return utcDate(y, m, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' })
   }
   const { start, end } = periodBounds(periodKey, payDay)
-  const label = (d) => `${d.getUTCDate()} ${MONTH_SHORT[d.getUTCMonth()]}`
+  const label = (d) => d.toLocaleDateString(locale, { day: 'numeric', month: 'short', timeZone: 'UTC' })
   return `${label(start)} – ${label(end)} ${end.getUTCFullYear()}`
 }
 

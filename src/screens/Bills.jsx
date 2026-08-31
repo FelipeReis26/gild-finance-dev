@@ -1,15 +1,14 @@
 import { useApp } from '../context/AppContext.jsx'
 import { billDateWithinPeriod } from '../db.js'
-
-function ordinal(n) {
-  const s = ['th', 'st', 'nd', 'rd']
-  const v = n % 100
-  return n + (s[(v - 20) % 10] || s[v] || s[0])
-}
+import { formatMoney, localeFor } from '../i18n.js'
 
 export default function Bills({ onAddBill }) {
-  const { bills, categories, currency, selectedMonth, changeMonth, payDay, payBill, unpayBill, removeBill, periodLabel, t } = useApp()
-  const s = currency.symbol
+  const { bills, categories, currency, language, selectedMonth, changeMonth, payDay, payBill, unpayBill, removeBill, periodLabel, t } =
+    useApp()
+  // Bills carry exact amounts (a €15.99 subscription must not read €16).
+  const money = (v) => formatMoney(language, currency, v, { decimals: 2 })
+  const shortDate = (iso) =>
+    new Date(iso + 'T00:00:00').toLocaleDateString(localeFor(language), { day: 'numeric', month: 'short' })
   const categoryById = Object.fromEntries(categories.map((c) => [c.id, c]))
 
   const dueCount = bills.filter((b) => !b.payments[selectedMonth]).length
@@ -40,10 +39,7 @@ export default function Bills({ onAddBill }) {
         </div>
         <div className="tile">
           <p className="label">{t('totalMonthly')}</p>
-          <p className="tile-number">
-            {s}
-            {total.toFixed(2)}
-          </p>
+          <p className="tile-number">{money(total)}</p>
         </div>
       </div>
 
@@ -66,14 +62,15 @@ export default function Bills({ onAddBill }) {
                 </div>
                 <div>
                   <p className="row-title">{b.name}</p>
-                  <p className="row-sub">{paid ? `${t('paid')} ${payment.paidDate}` : `${t('dueThe')} ${ordinal(Number(billDateWithinPeriod(selectedMonth, payDay, b.dueDay).split('-')[2]))}`}</p>
+                  <p className="row-sub">
+                    {paid
+                      ? `${t('paid')} · ${shortDate(payment.paidDate)}`
+                      : `${t('dueThe')} ${shortDate(billDateWithinPeriod(selectedMonth, payDay, b.dueDay))}`}
+                  </p>
                 </div>
               </div>
               <div className="col-right">
-                <p className="row-amount">
-                  {s}
-                  {b.amount.toFixed(2)}
-                </p>
+                <p className="row-amount">{money(b.amount)}</p>
                 <div className="row gap">
                   {paid ? (
                     <button type="button" className="mini-button" onClick={() => unpayBill(b.id, selectedMonth)}>

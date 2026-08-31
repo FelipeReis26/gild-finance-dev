@@ -52,7 +52,7 @@ export default function AddToHomeScreenBanner() {
         gap: 12
       }}
     >
-      <i className="ti ti-square-rounded-plus" style={{ fontSize: 22, color: 'var(--gold)', flexShrink: 0 }} aria-hidden="true"></i>
+      <i className="ti ti-square-rounded-plus" style={{ fontSize: 22, color: 'var(--text-secondary)', flexShrink: 0 }} aria-hidden="true"></i>
       <p style={{ flex: 1, fontSize: 13, margin: 0, color: 'var(--text-primary)', lineHeight: 1.35 }}>
         {t('a2hsMessage')}
       </p>

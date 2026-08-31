@@ -60,11 +60,6 @@ export default function Onboarding({ onDone }) {
 
   return (
     <div className="app-shell">
-      <div className="bg-blobs" aria-hidden="true">
-        <span className="blob blob-gold" />
-        <span className="blob blob-blue" />
-        <span className="blob blob-green" />
-      </div>
       <main className="app-main" style={{ paddingTop: 40 }}>
         <div className="screen">
           <p className="muted" style={{ textAlign: 'center', fontSize: 12 }}>{progress}</p>

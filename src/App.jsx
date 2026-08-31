@@ -103,11 +103,6 @@ export default function App() {
     <AppProvider>
       <AddToHomeScreenBanner />
       <div className="app-shell" {...edgeSwipe}>
-        <div className="bg-blobs" aria-hidden="true">
-          <span className="blob blob-gold" />
-          <span className="blob blob-blue" />
-          <span className="blob blob-green" />
-        </div>
         <main className="app-main">
           {overlay === 'addTransaction' && (
             <AddTransaction prefill={editingTx} editingId={editingTx?.id} onDone={closeOverlay} />

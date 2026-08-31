@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
-import { currencyOptions, iconOptions, exportBackup, importBackup, summarizeBackup, findImportDuplicates, getPasscode, setPasscode, clearPasscode } from '../db.js'
-import { languageOptions } from '../i18n.js'
+import { currencyOptions, iconOptions, exportBackup, importBackup, summarizeBackup, findImportDuplicates, getPasscode, setPasscode, clearPasscode, normalizePayRule } from '../db.js'
+import { languageOptions, localeFor } from '../i18n.js'
 import { changelog } from '../changelog.js'
 
 function BackButton({ onBack, label }) {
@@ -82,11 +82,25 @@ function CurrencyScreen({ onBack, t }) {
 }
 
 function PayDayScreen({ onBack, t }) {
-  const { payDay, changePayDay, periodLabel } = useApp()
-  const [value, setValue] = useState(String(payDay))
+  const { payDay, changePayDay, periodLabel, language } = useApp()
+  const rule = normalizePayRule(payDay)
+  const [mode, setMode] = useState(rule.type)
+  const [value, setValue] = useState(String(rule.day ?? 25))
+  const [weekday, setWeekday] = useState(rule.weekday ?? 5)
+
+  // Localized weekday names straight from Intl — 2024-01-01 was a Monday.
+  const weekdays = [1, 2, 3, 4, 5, 6, 0].map((dow) => ({
+    dow,
+    label: new Date(Date.UTC(2024, 0, 1 + ((dow + 6) % 7))).toLocaleDateString(localeFor(language), {
+      weekday: 'long',
+      timeZone: 'UTC'
+    })
+  }))
 
   async function handleSave() {
-    await changePayDay(value)
+    if (mode === 'lastWeekday') await changePayDay({ type: 'lastWeekday', weekday: Number(weekday) })
+    else if (mode === 'lastWorkingDay') await changePayDay({ type: 'lastWorkingDay' })
+    else await changePayDay({ type: 'day', day: value })
   }
 
   return (
@@ -97,15 +111,37 @@ function PayDayScreen({ onBack, t }) {
         <p className="muted" style={{ marginTop: 0, marginBottom: 14, fontSize: 13 }}>
           {t('payDayNote')}
         </p>
-        <label className="field-label">{t('payDayField')}</label>
-        <input
-          type="number"
-          inputMode="numeric"
-          min="1"
-          max="31"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-        />
+        <label className="field-label">{t('type')}</label>
+        <select value={mode} onChange={(e) => setMode(e.target.value)}>
+          <option value="day">{t('payDayModeDay')}</option>
+          <option value="lastWeekday">{t('payDayModeLastWeekday')}</option>
+          <option value="lastWorkingDay">{t('payDayModeLastWorking')}</option>
+        </select>
+        {mode === 'day' && (
+          <>
+            <label className="field-label">{t('payDayField')}</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              min="1"
+              max="31"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+          </>
+        )}
+        {mode === 'lastWeekday' && (
+          <>
+            <label className="field-label">{t('weekday')}</label>
+            <select value={weekday} onChange={(e) => setWeekday(e.target.value)}>
+              {weekdays.map((w) => (
+                <option key={w.dow} value={w.dow}>
+                  {w.label}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
         <button type="button" className="primary-button" onClick={handleSave}>
           {t('save')}
         </button>

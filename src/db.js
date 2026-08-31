@@ -185,16 +185,57 @@ function adjustToWorkingDay(date) {
   return date
 }
 
-// The actual date a given month's payday lands on, weekend-adjusted.
-// payDay <= 1 is the "just use plain calendar months" sentinel value,
-// not a real payday, so it's deliberately left unadjusted — the 1st of
-// the month should never shift just because a plain calendar-month
-// user happens to have a weekend at the start of a month.
-function actualPayDate(y, m, payDay) {
+// Pay rules. A rule is one of:
+//   { type: 'day', day: 1-31 }          — a fixed day of the month (day <= 1
+//                                         is the plain-calendar-months sentinel)
+//   { type: 'lastWeekday', weekday: 0-6 } — e.g. the last Friday of the month
+//   { type: 'lastWorkingDay' }           — the last Mon–Fri of the month
+// Older installs stored a bare integer; normalization converts it on read,
+// so nothing existing breaks and every helper below accepts either form.
+export function normalizePayRule(raw) {
+  if (raw && typeof raw === 'object') {
+    if (raw.type === 'lastWeekday' && Number.isInteger(raw.weekday) && raw.weekday >= 0 && raw.weekday <= 6) {
+      return { type: 'lastWeekday', weekday: raw.weekday }
+    }
+    if (raw.type === 'lastWorkingDay') return { type: 'lastWorkingDay' }
+    if (raw.type === 'day') {
+      const day = Math.min(31, Math.max(1, parseInt(raw.day, 10) || 1))
+      return { type: 'day', day }
+    }
+    return { type: 'day', day: 1 }
+  }
+  const n = parseInt(raw, 10)
+  return { type: 'day', day: Number.isNaN(n) ? 1 : Math.min(31, Math.max(1, n)) }
+}
+
+export function isCalendarRule(rule) {
+  const r = normalizePayRule(rule)
+  return r.type === 'day' && r.day <= 1
+}
+
+// The actual date a given month's payday lands on. Fixed-day rules are
+// weekend-adjusted backward (a salary due on a weekend settles the Friday
+// before); the day <= 1 sentinel is deliberately left unadjusted — the 1st
+// of the month should never shift just because a plain calendar-month user
+// happens to have a weekend at the start of a month. Weekday rules land on
+// their weekday by construction and need no adjustment.
+function actualPayDate(y, m, rule) {
+  const r = normalizePayRule(rule)
   const monthKey = `${y}-${String(m).padStart(2, '0')}`
-  const day = Math.min(payDay, daysInMonth(monthKey))
+  const dim = daysInMonth(monthKey)
+  if (r.type === 'lastWeekday') {
+    let d = utcDate(y, m, dim)
+    while (d.getUTCDay() !== r.weekday) d = new Date(d.getTime() - 86400000)
+    return d
+  }
+  if (r.type === 'lastWorkingDay') {
+    let d = utcDate(y, m, dim)
+    while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d = new Date(d.getTime() - 86400000)
+    return d
+  }
+  const day = Math.min(r.day, dim)
   const date = utcDate(y, m, day)
-  return payDay <= 1 ? date : adjustToWorkingDay(date)
+  return r.day <= 1 ? date : adjustToWorkingDay(date)
 }
 
 // The period identified by `periodKey` (e.g. '2026-07') starts on
@@ -232,7 +273,7 @@ export function currentPeriodKey(payDay) {
 // pins timeZone: 'UTC' to avoid a local-offset day shift.
 export function periodLabel(periodKey, payDay, lang = 'en') {
   const locale = localeFor(lang)
-  if (payDay <= 1) {
+  if (isCalendarRule(payDay)) {
     const [y, m] = periodKey.split('-').map(Number)
     return utcDate(y, m, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' })
   }
@@ -241,20 +282,26 @@ export function periodLabel(periodKey, payDay, lang = 'en') {
   return `${label(start)} – ${label(end)} ${end.getUTCFullYear()}`
 }
 
-// Where a bill's due day actually falls within a given pay period —
-// if the due day is on or after payday it's in the period's own
-// starting month, otherwise it's in the following calendar month
-// (e.g. payday the 19th, rent due the 5th, falls in the second half
-// of the period).
+// Where a bill's due day actually falls within a given pay period. A
+// period spans parts of two calendar months, so the due day has two
+// candidate dates; the one inside the period's real bounds wins. With
+// weekday rules ("last Friday") the anchor shifts month to month, and a
+// due day can genuinely not occur inside a given period — then the date
+// clamps to the nearer bound so a recorded payment always stays inside
+// the period it belongs to (the old nominal-day comparison could book
+// those payments into the wrong period).
 export function billDateWithinPeriod(periodKey, payDay, dueDay) {
-  const ownDays = daysInMonth(periodKey)
-  if (dueDay >= payDay) {
-    const day = Math.min(dueDay, ownDays)
-    return `${periodKey}-${String(day).padStart(2, '0')}`
+  const { start, end } = periodBounds(periodKey, payDay)
+  const isoOf = (d) => d.toISOString().slice(0, 10)
+  for (const k of [periodKey, shiftMonthPrefix(periodKey, 1)]) {
+    const day = Math.min(dueDay, daysInMonth(k))
+    const candidate = `${k}-${String(day).padStart(2, '0')}`
+    if (inPeriod(candidate, periodKey, payDay)) return candidate
   }
-  const nextKey = shiftMonthPrefix(periodKey, 1)
-  const day = Math.min(dueDay, daysInMonth(nextKey))
-  return `${nextKey}-${String(day).padStart(2, '0')}`
+  const ownDay = Math.min(dueDay, daysInMonth(periodKey))
+  const [cy, cm] = periodKey.split('-').map(Number)
+  const ownTs = utcDate(cy, cm, ownDay).getTime()
+  return ownTs < start.getTime() ? isoOf(start) : isoOf(end)
 }
 
 // monthlyBudget is optional. A category with no budget is tracked but
@@ -346,13 +393,13 @@ export async function clearPasscode() {
 }
 
 export async function getPayDay() {
-  return load(KEYS.payDay, 1)
+  return normalizePayRule(load(KEYS.payDay, 1))
 }
 
-export async function setPayDay(day) {
-  const clamped = Math.min(31, Math.max(1, parseInt(day, 10) || 1))
-  save(KEYS.payDay, clamped)
-  return clamped
+export async function setPayDay(dayOrRule) {
+  const rule = normalizePayRule(dayOrRule)
+  save(KEYS.payDay, rule)
+  return rule
 }
 
 // Onboarding only runs on a genuinely fresh install — if any storage

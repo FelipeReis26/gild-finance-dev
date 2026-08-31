@@ -1,5 +1,5 @@
 import { useApp } from '../context/AppContext.jsx'
-import { clampDueDay } from '../db.js'
+import { billDateWithinPeriod } from '../db.js'
 
 function ordinal(n) {
   const s = ['th', 'st', 'nd', 'rd']
@@ -8,14 +8,9 @@ function ordinal(n) {
 }
 
 export default function Bills({ onAddBill }) {
-  const { bills, categories, currency, selectedMonth, changeMonth, payBill, unpayBill, removeBill, t } = useApp()
+  const { bills, categories, currency, selectedMonth, changeMonth, payDay, payBill, unpayBill, removeBill, periodLabel, t } = useApp()
   const s = currency.symbol
   const categoryById = Object.fromEntries(categories.map((c) => [c.id, c]))
-
-  const monthLabel = new Date(selectedMonth + '-02').toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric'
-  })
 
   const dueCount = bills.filter((b) => !b.payments[selectedMonth]).length
   const total = bills.reduce((sum, b) => sum + b.amount, 0)
@@ -30,7 +25,7 @@ export default function Bills({ onAddBill }) {
             <i className="ti ti-chevron-left" aria-hidden="true"></i>
           </button>
           <p className="section-title" style={{ margin: 0 }}>
-            {monthLabel}
+            {periodLabel}
           </p>
           <button type="button" className="mini-button" onClick={() => changeMonth(1)} aria-label={t('nextMonth')}>
             <i className="ti ti-chevron-right" aria-hidden="true"></i>
@@ -71,7 +66,7 @@ export default function Bills({ onAddBill }) {
                 </div>
                 <div>
                   <p className="row-title">{b.name}</p>
-                  <p className="row-sub">{paid ? `${t('paid')} ${payment.paidDate}` : `${t('dueThe')} ${ordinal(clampDueDay(b.dueDay, selectedMonth))}`}</p>
+                  <p className="row-sub">{paid ? `${t('paid')} ${payment.paidDate}` : `${t('dueThe')} ${ordinal(Number(billDateWithinPeriod(selectedMonth, payDay, b.dueDay).split('-')[2]))}`}</p>
                 </div>
               </div>
               <div className="col-right">

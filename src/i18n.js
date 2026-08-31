@@ -23,7 +23,6 @@ const strings = {
   ofIncomeSpent: { en: 'of income spent', fr: 'des revenus dépensés', 'pt-BR': 'da renda gasta', it: 'del reddito speso', es: 'de ingresos gastado' },
   ofBudgetUsed: { en: 'of budget used', fr: 'du budget utilisé', 'pt-BR': 'do orçamento utilizado', it: 'del budget utilizzato', es: 'del presupuesto utilizado' },
   categories: { en: 'Categories', fr: 'Catégories', 'pt-BR': 'Categorias', it: 'Categorie', es: 'Categorías' },
-  categoryBreakdown: { en: 'Category breakdown', fr: 'Répartition par catégorie', 'pt-BR': 'Divisão por categoria', it: 'Ripartizione per categoria', es: 'Desglose por categoría' },
   addTransaction: { en: 'Add transaction', fr: 'Ajouter une transaction', 'pt-BR': 'Adicionar transação', it: 'Aggiungi transazione', es: 'Añadir transacción' },
   previousMonth: { en: 'Previous month', fr: 'Mois précédent', 'pt-BR': 'Mês anterior', it: 'Mese precedente', es: 'Mes anterior' },
   nextMonth: { en: 'Next month', fr: 'Mois suivant', 'pt-BR': 'Próximo mês', it: 'Mese successivo', es: 'Mes siguiente' },
@@ -38,6 +37,7 @@ const strings = {
   saveTransaction: { en: 'Save transaction', fr: 'Enregistrer la transaction', 'pt-BR': 'Salvar transação', it: 'Salva transazione', es: 'Guardar transacción' },
   deleteTransaction: { en: 'Delete transaction', fr: 'Supprimer la transaction', 'pt-BR': 'Excluir transação', it: 'Elimina transazione', es: 'Eliminar transacción' },
   save: { en: 'Save', fr: 'Enregistrer', 'pt-BR': 'Salvar', it: 'Salva', es: 'Guardar' },
+  next: { en: 'Next', fr: 'Suivant', 'pt-BR': 'Próximo', it: 'Avanti', es: 'Siguiente' },
   enterValidAmount: { en: 'Enter a valid amount', fr: 'Entrez un montant valide', 'pt-BR': 'Insira um valor válido', it: 'Inserisci un importo valido', es: 'Introduce un importe válido' },
   chooseCategory: { en: 'Choose a category', fr: 'Choisissez une catégorie', 'pt-BR': 'Escolha uma categoria', it: 'Scegli una categoria', es: 'Elige una categoría' },
 
@@ -82,7 +82,7 @@ const strings = {
   sinceLastUpdate: { en: 'since last update', fr: 'depuis la dernière mise à jour', 'pt-BR': 'desde a última atualização', it: "dall'ultimo aggiornamento", es: 'desde la última actualización' },
   vsLastMonth: { en: 'vs last month', fr: 'vs le mois dernier', 'pt-BR': 'vs mês passado', it: 'vs mese scorso', es: 'vs el mes pasado' },
   searchTransactions: { en: 'Search notes...', fr: 'Rechercher des notes...', 'pt-BR': 'Buscar notas...', it: 'Cerca note...', es: 'Buscar notas...' },
-  spendTrend: { en: 'Last 6 months', fr: 'Les 6 derniers mois', 'pt-BR': 'Últimos 6 meses', it: 'Ultimi 6 mesi', es: 'Últimos 6 meses' },
+  spendTrend: { en: 'Last 3 months', fr: 'Les 3 derniers mois', 'pt-BR': 'Últimos 3 meses', it: 'Ultimi 3 mesi', es: 'Últimos 3 meses' },
   noAccountsYet: { en: 'No accounts yet. Add a loan, savings pot, or money someone owes you.', fr: "Aucun compte pour l'instant. Ajoutez un prêt, une épargne, ou de l'argent qu'on vous doit.", 'pt-BR': 'Nenhuma conta ainda. Adicione um empréstimo, poupança, ou dinheiro que alguém te deve.', it: 'Nessun conto ancora. Aggiungi un prestito, un fondo risparmio, o denaro che qualcuno ti deve.', es: 'Aún no hay cuentas. Añade un préstamo, un fondo de ahorro, o dinero que alguien te debe.' },
   saveAccount: { en: 'Save account', fr: 'Enregistrer le compte', 'pt-BR': 'Salvar conta', it: 'Salva conto', es: 'Guardar cuenta' },
 
@@ -140,7 +140,11 @@ const strings = {
   passcodeSet: { en: 'Passcode set', fr: 'Code défini', 'pt-BR': 'Senha definida', it: 'Codice impostato', es: 'Código establecido' },
   passcodeRemoved: { en: 'Passcode removed', fr: 'Code supprimé', 'pt-BR': 'Senha removida', it: 'Codice rimosso', es: 'Código eliminado' },
   passcodeTooShort: { en: 'Use at least 4 digits', fr: 'Utilisez au moins 4 chiffres', 'pt-BR': 'Use pelo menos 4 dígitos', it: 'Usa almeno 4 cifre', es: 'Usa al menos 4 dígitos' },
-  passcodesDontMatch: { en: "Passcodes don't match", fr: 'Les codes ne correspondent pas', 'pt-BR': 'As senhas não coincidem', it: 'I codici non corrispondono', es: 'Los códigos no coinciden' }
+  passcodesDontMatch: { en: "Passcodes don't match", fr: 'Les codes ne correspondent pas', 'pt-BR': 'As senhas não coincidem', it: 'I codici non corrispondono', es: 'Los códigos no coinciden' },
+  payDay: { en: 'Pay day', fr: 'Jour de paie', 'pt-BR': 'Dia do pagamento', it: 'Giorno di paga', es: 'Día de pago' },
+  payDayField: { en: 'Day of month you get paid', fr: 'Jour du mois où vous êtes payé', 'pt-BR': 'Dia do mês em que você recebe', it: 'Giorno del mese in cui vieni pagato', es: 'Día del mes en que te pagan' },
+  payDayNote: { en: "Your budget month runs from this day to the day before it next month, instead of the 1st to the end of the calendar month. Set this to 1 to use plain calendar months.", fr: "Votre mois budgétaire va de ce jour jusqu'à la veille de ce jour le mois suivant, au lieu du 1er à la fin du mois calendaire. Réglez sur 1 pour utiliser les mois calendaires normaux.", 'pt-BR': 'Seu mês de orçamento vai deste dia até o dia anterior no mês seguinte, em vez do dia 1 até o fim do mês do calendário. Defina como 1 para usar meses de calendário normais.', it: "Il tuo mese di budget va da questo giorno al giorno prima nel mese successivo, invece che dal 1° alla fine del mese di calendario. Imposta 1 per usare i normali mesi di calendario.", es: 'Tu mes de presupuesto va desde este día hasta el día anterior al mes siguiente, en lugar del día 1 al final del mes calendario. Pon 1 para usar meses de calendario normales.' },
+  payDayCurrent: { en: 'Current period', fr: 'Période actuelle', 'pt-BR': 'Período atual', it: 'Periodo attuale', es: 'Período actual' }
 }
 
 export function t(lang, key) {

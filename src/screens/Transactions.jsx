@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
+import { inPeriod } from '../db.js'
 
 function groupByDay(transactions) {
   const groups = {}
@@ -11,7 +12,7 @@ function groupByDay(transactions) {
 }
 
 export default function Transactions({ onEditTransaction, initialCategory, initialScope }) {
-  const { transactions, categories, currency, removeTransaction, selectedMonth, changeMonth, t } = useApp()
+  const { transactions, categories, currency, removeTransaction, selectedMonth, changeMonth, payDay, periodLabel, t } = useApp()
   const [filter, setFilter] = useState(initialCategory || 'all')
   const [scope, setScope] = useState(initialScope || 'month')
   const [search, setSearch] = useState('')
@@ -24,13 +25,8 @@ export default function Transactions({ onEditTransaction, initialCategory, initi
     }
   }
 
-  const monthLabel = new Date(selectedMonth + '-02').toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric'
-  })
-
   const filtered = useMemo(() => {
-    let list = scope === 'month' ? transactions.filter((tx) => tx.date.startsWith(selectedMonth)) : transactions
+    let list = scope === 'month' ? transactions.filter((tx) => inPeriod(tx.date, selectedMonth, payDay)) : transactions
     if (filter !== 'all') list = list.filter((tx) => tx.categoryId === filter)
     if (search.trim()) {
       const q = search.trim().toLowerCase()
@@ -41,7 +37,6 @@ export default function Transactions({ onEditTransaction, initialCategory, initi
 
   const groups = groupByDay(filtered)
   const categoryById = Object.fromEntries(categories.map((c) => [c.id, c]))
-  const activeCategory = filter !== 'all' ? categoryById[filter] : null
 
   return (
     <div className="screen">
@@ -60,7 +55,7 @@ export default function Transactions({ onEditTransaction, initialCategory, initi
               <i className="ti ti-chevron-left" aria-hidden="true"></i>
             </button>
             <p className="section-title" style={{ margin: 0 }}>
-              {monthLabel}
+              {periodLabel}
             </p>
             <button type="button" className="mini-button" onClick={() => changeMonth(1)} aria-label={t('nextMonth')}>
               <i className="ti ti-chevron-right" aria-hidden="true"></i>
@@ -76,15 +71,6 @@ export default function Transactions({ onEditTransaction, initialCategory, initi
         onChange={(e) => setSearch(e.target.value)}
         style={{ marginBottom: 0 }}
       />
-
-      {activeCategory && (
-        <div className="row between">
-          <span className="chip chip-active">{activeCategory.name}</span>
-          <button type="button" className="mini-button" onClick={() => setFilter('all')}>
-            {t('clearFilter')}
-          </button>
-        </div>
-      )}
 
       <div className="chip-row" style={{ marginTop: 2 }}>
         <button type="button" className={filter === 'all' ? 'chip chip-active' : 'chip'} onClick={() => setFilter('all')}>

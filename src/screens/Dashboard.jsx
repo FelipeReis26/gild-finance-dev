@@ -1,84 +1,12 @@
 import { useApp } from '../context/AppContext.jsx'
+import { useSwipe } from '../useSwipe.js'
 
 const RADIUS = 90
 const CIRC = Math.PI * RADIUS
 
-const DONUT_R = 70
-const DONUT_CIRC = 2 * Math.PI * DONUT_R
-
-function DonutBreakdown({ byCategory, total, symbol, onSelect }) {
-  const segments = byCategory
-    .filter((c) => c.spent > 0)
-    .sort((a, b) => b.spent - a.spent)
-    .map((c) => ({
-      id: c.id,
-      name: c.name,
-      color: c.accent,
-      pct: total > 0 ? (c.spent / total) * 100 : 0,
-      spent: c.spent
-    }))
-
-  let cursor = 0
-  const arcs = segments.map((seg) => {
-    const length = (seg.pct / 100) * DONUT_CIRC
-    const arc = { ...seg, length, offset: cursor }
-    cursor += length
-    return arc
-  })
-
-  return (
-    <div>
-      <div className="donut-wrap">
-        <svg width="180" height="180" viewBox="0 0 180 180">
-          <circle cx="90" cy="90" r={DONUT_R} fill="none" stroke="var(--glass-border)" strokeWidth="22" />
-          {arcs.map((arc) => (
-            <circle
-              key={arc.id}
-              cx="90"
-              cy="90"
-              r={DONUT_R}
-              fill="none"
-              stroke={arc.color}
-              strokeWidth="22"
-              strokeDasharray={`${arc.length} ${DONUT_CIRC - arc.length}`}
-              strokeDashoffset={-arc.offset}
-              transform="rotate(-90 90 90)"
-              strokeLinecap="butt"
-            />
-          ))}
-          <text x="90" y="84" textAnchor="middle" fontSize="20" fontWeight="700" fill="var(--text-primary)">
-            {symbol}
-            {total.toFixed(0)}
-          </text>
-          <text x="90" y="104" textAnchor="middle" fontSize="11" fill="var(--text-secondary)">
-            {segments.length} categories
-          </text>
-        </svg>
-      </div>
-      <div className="donut-legend">
-        {segments.map((seg) => (
-          <div
-            key={seg.id}
-            className="legend-row"
-            role="button"
-            tabIndex={0}
-            onClick={() => onSelect?.(seg.id)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onSelect?.(seg.id)
-            }}
-          >
-            <span className="legend-dot" style={{ background: seg.color }} />
-            <span className="legend-name">{seg.name}</span>
-            <span className="legend-pct">{Math.round(seg.pct)}%</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 export default function Dashboard({ onAddTransaction, onSelectCategory }) {
-  const { summary, currency, selectedMonth, changeMonth, monthTrend, t } = useApp()
+  const { summary, currency, selectedMonth, changeMonth, goToMonth, monthTrend, periodLabel, t } = useApp()
+  const swipe = useSwipe({ onSwipeLeft: () => changeMonth(1), onSwipeRight: () => changeMonth(-1) })
 
   if (!summary) return <p className="muted">Loading</p>
 
@@ -86,13 +14,9 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
   const pct = summary.budget ? Math.min(100, Math.round((summary.spent / summary.budget) * 100)) : 0
   const dashOffset = CIRC * (1 - pct / 100)
   const gaugeLabel = summary.byCategory.some((c) => c.monthlyBudget != null) ? t('ofBudgetUsed') : t('ofIncomeSpent')
-  const monthLabel = new Date(selectedMonth + '-02').toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric'
-  })
 
   return (
-    <div className="screen">
+    <div className="screen" {...swipe}>
       <div className="card">
         <div className="row between" style={{ marginBottom: 4 }}>
           <button
@@ -104,7 +28,7 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
             <i className="ti ti-chevron-left" aria-hidden="true"></i>
           </button>
           <p className="section-title" style={{ margin: 0 }}>
-            {monthLabel}
+            {periodLabel}
           </p>
           <button type="button" className="mini-button" onClick={() => changeMonth(1)} aria-label={t('nextMonth')}>
             <i className="ti ti-chevron-right" aria-hidden="true"></i>
@@ -171,40 +95,71 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
 
       {monthTrend.length > 1 && (
         <div className="card">
-          <p className="section-title" style={{ marginBottom: 12 }}>
-            {t('spendTrend')}
-          </p>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 90 }}>
+          <div className="row between" style={{ marginBottom: 12 }}>
+            <p className="section-title" style={{ margin: 0 }}>
+              {t('spendTrend')}
+            </p>
+            <div className="row gap" style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+              <span className="row gap" style={{ gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--success)', display: 'inline-block' }} />
+                {t('income')}
+              </span>
+              <span className="row gap" style={{ gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--gold)', display: 'inline-block' }} />
+                {t('spent')}
+              </span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: 100 }}>
             {monthTrend.map((m) => {
-              const max = Math.max(...monthTrend.map((x) => x.total), 1)
-              const h = Math.max(4, Math.round((m.total / max) * 80))
+              const max = Math.max(...monthTrend.map((x) => Math.max(x.total, x.income)), 1)
+              const hExpense = Math.max(4, Math.round((m.total / max) * 80))
+              const hIncome = Math.max(4, Math.round((m.income / max) * 80))
               const isCurrent = m.month === selectedMonth
               return (
-                <div key={m.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                  <div
-                    style={{
-                      width: '100%',
-                      height: h,
-                      background: isCurrent ? 'var(--gold)' : 'var(--glass-border)',
-                      borderRadius: 4
-                    }}
-                  />
-                  <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+                <button
+                  type="button"
+                  key={m.month}
+                  onClick={() => goToMonth(m.month)}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 6,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: 0
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 80 }}>
+                    <div
+                      style={{
+                        width: 14,
+                        height: hIncome,
+                        background: 'var(--success)',
+                        opacity: isCurrent ? 1 : 0.55,
+                        borderRadius: 3
+                      }}
+                    />
+                    <div
+                      style={{
+                        width: 14,
+                        height: hExpense,
+                        background: 'var(--gold)',
+                        opacity: isCurrent ? 1 : 0.55,
+                        borderRadius: 3
+                      }}
+                    />
+                  </div>
+                  <span style={{ fontSize: 11, color: isCurrent ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: isCurrent ? 600 : 400 }}>
                     {new Date(m.month + '-02').toLocaleDateString('en-US', { month: 'short' })}
                   </span>
-                </div>
+                </button>
               )
             })}
           </div>
-        </div>
-      )}
-
-      {summary.byCategory.some((c) => c.spent > 0) && (
-        <div className="card">
-          <p className="section-title" style={{ marginBottom: 12 }}>
-            {t('categoryBreakdown')}
-          </p>
-          <DonutBreakdown byCategory={summary.byCategory} total={summary.spent} symbol={s} onSelect={onSelectCategory} />
         </div>
       )}
 

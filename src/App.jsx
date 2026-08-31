@@ -10,17 +10,22 @@ import ScanImport from './screens/ScanImport.jsx'
 import Settings from './screens/Settings.jsx'
 import Balances from './screens/Balances.jsx'
 import Lock from './screens/Lock.jsx'
-import { getPasscode } from './db.js'
+import Onboarding from './screens/Onboarding.jsx'
+import { getPasscode, isFirstRun } from './db.js'
+import { useEdgeSwipeBack } from './useSwipe.js'
 
 export default function App() {
   const [tab, setTab] = useState('dashboard')
+  const [navStack, setNavStack] = useState(['dashboard'])
   const [overlay, setOverlay] = useState(null) // 'addTransaction' | 'addBill' | null
   const [editingTx, setEditingTx] = useState(null)
   const [categoryDrillDown, setCategoryDrillDown] = useState(null)
   const [locked, setLocked] = useState(null) // null = checking, true/false after
+  const [needsOnboarding, setNeedsOnboarding] = useState(null)
 
   useEffect(() => {
     getPasscode().then((code) => setLocked(!!code))
+    isFirstRun().then(setNeedsOnboarding)
   }, [])
 
   function openEditTransaction(tx) {
@@ -36,19 +41,37 @@ export default function App() {
   function openCategory(categoryId) {
     setCategoryDrillDown(categoryId)
     setTab('transactions')
+    setNavStack((s) => (s[s.length - 1] === 'transactions' ? s : [...s, 'transactions']))
   }
 
   function handleTabChange(nextTab) {
     setCategoryDrillDown(null)
+    setNavStack((s) => (s[s.length - 1] === nextTab ? s : [...s, nextTab]))
     setTab(nextTab)
   }
 
-  if (locked === null) return null
+  function goBack() {
+    if (overlay) {
+      closeOverlay()
+      return
+    }
+    setNavStack((s) => {
+      if (s.length <= 1) return s
+      const next = s.slice(0, -1)
+      setTab(next[next.length - 1])
+      return next
+    })
+  }
+
+  const edgeSwipe = useEdgeSwipeBack(goBack)
+
+  if (locked === null || needsOnboarding === null) return null
   if (locked) return <Lock onUnlock={() => setLocked(false)} />
+  if (needsOnboarding) return <Onboarding onDone={(goToImport) => { setNeedsOnboarding(false); if (goToImport) setTab('settings') }} />
 
   return (
     <AppProvider>
-      <div className="app-shell">
+      <div className="app-shell" {...edgeSwipe}>
         <div className="bg-blobs" aria-hidden="true">
           <span className="blob blob-gold" />
           <span className="blob blob-blue" />

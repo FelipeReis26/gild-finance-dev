@@ -9,7 +9,9 @@ const KEYS = {
   currency: 'ft_currency',
   balances: 'ft_balances',
   language: 'ft_language',
-  passcode: 'ft_passcode'
+  passcode: 'ft_passcode',
+  payDay: 'ft_payday',
+  onboarded: 'ft_onboarded'
 }
 
 function load(key, fallback) {
@@ -66,6 +68,82 @@ export function clampDueDay(dueDay, monthPrefix) {
 
 export function todayLocalDate() {
   return todayLocal()
+}
+
+// Pay periods: instead of a plain calendar month, a "period" can start
+// on any day of the month (the person's payday) and run to the day
+// before that same day next month. Everything below works in pure
+// UTC-constructed dates so it's immune to the local timezone pitfalls
+// that caused an earlier bug — never mixed with local Date getters.
+function utcDate(y, m, d) {
+  return new Date(Date.UTC(y, m - 1, d))
+}
+
+function fmtUtcDate(d) {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+}
+
+// The period identified by `periodKey` (e.g. '2026-07') starts on
+// min(payDay, days in that month) of that month, and ends the day
+// before the next period starts. With payDay=1 this is exactly a
+// plain calendar month.
+export function periodBounds(periodKey, payDay) {
+  const [y, m] = periodKey.split('-').map(Number)
+  const startDay = Math.min(payDay, daysInMonth(periodKey))
+  const start = utcDate(y, m, startDay)
+  const nextKey = shiftMonthPrefix(periodKey, 1)
+  const [ny, nm] = nextKey.split('-').map(Number)
+  const nextStartDay = Math.min(payDay, daysInMonth(nextKey))
+  const end = new Date(utcDate(ny, nm, nextStartDay).getTime() - 86400000)
+  return { start, end }
+}
+
+export function inPeriod(dateStr, periodKey, payDay) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const target = utcDate(y, m, d).getTime()
+  const { start, end } = periodBounds(periodKey, payDay)
+  return target >= start.getTime() && target <= end.getTime()
+}
+
+// Which period key today falls inside, given a payday.
+export function currentPeriodKey(payDay) {
+  const [y, m, d] = todayLocal().split('-').map(Number)
+  const thisMonthKey = `${y}-${String(m).padStart(2, '0')}`
+  const clampedPayDay = Math.min(payDay, daysInMonth(thisMonthKey))
+  return d >= clampedPayDay ? thisMonthKey : shiftMonthPrefix(thisMonthKey, -1)
+}
+
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+const MONTH_FULL = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+]
+
+export function periodLabel(periodKey, payDay) {
+  if (payDay <= 1) {
+    const [y, m] = periodKey.split('-').map(Number)
+    return `${MONTH_FULL[m - 1]} ${y}`
+  }
+  const { start, end } = periodBounds(periodKey, payDay)
+  const label = (d) => `${d.getUTCDate()} ${MONTH_SHORT[d.getUTCMonth()]}`
+  return `${label(start)} – ${label(end)} ${end.getUTCFullYear()}`
+}
+
+// Where a bill's due day actually falls within a given pay period —
+// if the due day is on or after payday it's in the period's own
+// starting month, otherwise it's in the following calendar month
+// (e.g. payday the 19th, rent due the 5th, falls in the second half
+// of the period).
+export function billDateWithinPeriod(periodKey, payDay, dueDay) {
+  const ownDays = daysInMonth(periodKey)
+  if (dueDay >= payDay) {
+    const day = Math.min(dueDay, ownDays)
+    return `${periodKey}-${String(day).padStart(2, '0')}`
+  }
+  const nextKey = shiftMonthPrefix(periodKey, 1)
+  const day = Math.min(dueDay, daysInMonth(nextKey))
+  return `${nextKey}-${String(day).padStart(2, '0')}`
 }
 
 // monthlyBudget is optional. A category with no budget is tracked but
@@ -151,6 +229,30 @@ export async function setPasscode(code) {
 
 export async function clearPasscode() {
   localStorage.removeItem(KEYS.passcode)
+}
+
+export async function getPayDay() {
+  return load(KEYS.payDay, 1)
+}
+
+export async function setPayDay(day) {
+  const clamped = Math.min(31, Math.max(1, parseInt(day, 10) || 1))
+  save(KEYS.payDay, clamped)
+  return clamped
+}
+
+// Onboarding only runs on a genuinely fresh install — if any storage
+// key already exists (an existing user updating to a newer version),
+// it's skipped automatically so nobody who's already using the app
+// gets interrupted by a first-run wizard.
+export async function isFirstRun() {
+  const anyExisting = Object.values(KEYS).some((k) => localStorage.getItem(k) !== null)
+  if (anyExisting) return false
+  return true
+}
+
+export async function completeOnboarding() {
+  save(KEYS.onboarded, true)
 }
 
 export async function getCategories() {
@@ -287,10 +389,9 @@ export async function markBillPaid(billId, monthPrefix) {
   const bill = bills.find((b) => b.id === billId)
   if (!bill) return null
 
-  const clampedDay = Math.min(bill.dueDay, daysInMonth(monthPrefix))
-  const day = String(clampedDay).padStart(2, '0')
-  const isCurrentMonth = monthPrefix === currentMonthLocal()
-  const paidDate = isCurrentMonth ? todayLocal() : `${monthPrefix}-${day}`
+  const payDay = await getPayDay()
+  const isCurrentPeriod = monthPrefix === currentPeriodKey(payDay)
+  const paidDate = isCurrentPeriod ? todayLocal() : billDateWithinPeriod(monthPrefix, payDay, bill.dueDay)
 
   const record = await addTransaction({
     amount: bill.amount,
@@ -320,11 +421,13 @@ export async function markBillUnpaid(billId, monthPrefix) {
   return bill
 }
 
-export async function getMonthSummary(monthPrefix = currentMonthLocal()) {
+export async function getMonthSummary(monthPrefix, payDayOverride) {
+  const payDay = payDayOverride ?? (await getPayDay())
+  const periodKey = monthPrefix || currentPeriodKey(payDay)
   const [transactions, categories] = [await getTransactions(), await getCategories()]
-  const inMonth = transactions.filter((t) => t.date.startsWith(monthPrefix))
-  const prevMonthPrefix = shiftMonthPrefix(monthPrefix, -1)
-  const inPrevMonth = transactions.filter((t) => t.date.startsWith(prevMonthPrefix))
+  const inMonth = transactions.filter((t) => inPeriod(t.date, periodKey, payDay))
+  const prevMonthPrefix = shiftMonthPrefix(periodKey, -1)
+  const inPrevMonth = transactions.filter((t) => inPeriod(t.date, prevMonthPrefix, payDay))
 
   const spent = inMonth.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
   const income = inMonth.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
@@ -358,18 +461,22 @@ export async function getMonthSummary(monthPrefix = currentMonthLocal()) {
 
 // Total expense spend per month for the last `count` months (including
 // the given month), oldest first, for a simple trend chart.
-export async function getRecentMonthTotals(monthPrefix = currentMonthLocal(), count = 6) {
+export async function getRecentMonthTotals(monthPrefix, count = 3, payDayOverride) {
+  const payDay = payDayOverride ?? (await getPayDay())
+  const periodKey = monthPrefix || currentPeriodKey(payDay)
   const transactions = await getTransactions()
   const months = []
   for (let i = count - 1; i >= 0; i--) {
-    months.push(shiftMonthPrefix(monthPrefix, -i))
+    months.push(shiftMonthPrefix(periodKey, -i))
   }
-  return months.map((m) => ({
-    month: m,
-    total: transactions
-      .filter((t) => t.type === 'expense' && t.date.startsWith(m))
-      .reduce((sum, t) => sum + t.amount, 0)
-  }))
+  return months.map((m) => {
+    const inThisPeriod = transactions.filter((t) => inPeriod(t.date, m, payDay))
+    return {
+      month: m,
+      total: inThisPeriod.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0),
+      income: inThisPeriod.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
+    }
+  })
 }
 
 // Balances: named accounts (debts or savings pots) with a history of

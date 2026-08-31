@@ -20,6 +20,7 @@ function BackButton({ onBack, label }) {
 function MenuScreen({ onOpen, t }) {
   const items = [
     { key: 'currency', label: t('currency'), icon: 'ti-coin' },
+    { key: 'payday', label: t('payDay'), icon: 'ti-calendar-dollar' },
     { key: 'language', label: t('language'), icon: 'ti-language' },
     { key: 'categories', label: t('categoriesSettings'), icon: 'ti-tag' },
     { key: 'security', label: t('security'), icon: 'ti-lock' },
@@ -75,6 +76,42 @@ function CurrencyScreen({ onBack, t }) {
             </option>
           ))}
         </select>
+      </div>
+    </div>
+  )
+}
+
+function PayDayScreen({ onBack, t }) {
+  const { payDay, changePayDay, periodLabel } = useApp()
+  const [value, setValue] = useState(String(payDay))
+
+  async function handleSave() {
+    await changePayDay(value)
+  }
+
+  return (
+    <div className="screen">
+      <BackButton onBack={onBack} label={t('back')} />
+      <p className="section-title">{t('payDay')}</p>
+      <div className="card">
+        <p className="muted" style={{ marginTop: 0, marginBottom: 14, fontSize: 13 }}>
+          {t('payDayNote')}
+        </p>
+        <label className="field-label">{t('payDayField')}</label>
+        <input
+          type="number"
+          inputMode="numeric"
+          min="1"
+          max="31"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <button type="button" className="primary-button" onClick={handleSave}>
+          {t('save')}
+        </button>
+        <p className="muted" style={{ marginTop: 14, marginBottom: 0, fontSize: 13 }}>
+          {t('payDayCurrent')}: {periodLabel}
+        </p>
       </div>
     </div>
   )
@@ -431,16 +468,77 @@ function AboutScreen({ onBack, t }) {
   )
 }
 
+function SubScreenSwipeWrapper({ onBack, children }) {
+  const startRef = { current: null }
+  function onTouchStart(e) {
+    const t = e.touches[0]
+    if (t.clientX <= 24) startRef.current = { x: t.clientX, y: t.clientY }
+  }
+  function onTouchEnd(e) {
+    if (!startRef.current) return
+    const t = e.changedTouches[0]
+    const dx = t.clientX - startRef.current.x
+    const dy = t.clientY - startRef.current.y
+    startRef.current = null
+    if (dx > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      e.stopPropagation()
+      onBack()
+    }
+  }
+  return (
+    <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+      {children}
+    </div>
+  )
+}
+
 export default function Settings() {
   const { t } = useApp()
   const [view, setView] = useState('menu')
+  const back = () => setView('menu')
 
-  if (view === 'currency') return <CurrencyScreen onBack={() => setView('menu')} t={t} />
-  if (view === 'language') return <LanguageScreen onBack={() => setView('menu')} t={t} />
-  if (view === 'categories') return <CategoriesScreen onBack={() => setView('menu')} t={t} />
-  if (view === 'security') return <SecurityScreen onBack={() => setView('menu')} t={t} />
-  if (view === 'data') return <DataScreen onBack={() => setView('menu')} t={t} />
-  if (view === 'about') return <AboutScreen onBack={() => setView('menu')} t={t} />
+  if (view === 'currency')
+    return (
+      <SubScreenSwipeWrapper onBack={back}>
+        <CurrencyScreen onBack={back} t={t} />
+      </SubScreenSwipeWrapper>
+    )
+  if (view === 'payday')
+    return (
+      <SubScreenSwipeWrapper onBack={back}>
+        <PayDayScreen onBack={back} t={t} />
+      </SubScreenSwipeWrapper>
+    )
+  if (view === 'language')
+    return (
+      <SubScreenSwipeWrapper onBack={back}>
+        <LanguageScreen onBack={back} t={t} />
+      </SubScreenSwipeWrapper>
+    )
+  if (view === 'categories')
+    return (
+      <SubScreenSwipeWrapper onBack={back}>
+        <CategoriesScreen onBack={back} t={t} />
+      </SubScreenSwipeWrapper>
+    )
+  if (view === 'security')
+    return (
+      <SubScreenSwipeWrapper onBack={back}>
+        <SecurityScreen onBack={back} t={t} />
+      </SubScreenSwipeWrapper>
+    )
+  if (view === 'data')
+    return (
+      <SubScreenSwipeWrapper onBack={back}>
+        <DataScreen onBack={back} t={t} />
+      </SubScreenSwipeWrapper>
+    )
+  if (view === 'about')
+    return (
+      <SubScreenSwipeWrapper onBack={back}>
+        <AboutScreen onBack={back} t={t} />
+      </SubScreenSwipeWrapper>
+    )
 
   return <MenuScreen onOpen={setView} t={t} />
 }

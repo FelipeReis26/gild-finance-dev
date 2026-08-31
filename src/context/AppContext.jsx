@@ -4,11 +4,6 @@ import { t as translate } from '../i18n.js'
 
 const AppContext = createContext(null)
 
-function currentMonth() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
-
 // Pure integer arithmetic, no Date/timezone conversion involved, so this
 // can't be thrown off by the browser's local timezone offset the way
 // constructing a Date object and reading it back via toISOString can.
@@ -34,40 +29,63 @@ export function AppProvider({ children }) {
   const [summary, setSummary] = useState(null)
   const [currency, setCurrencyState] = useState({ code: 'EUR', symbol: '€' })
   const [language, setLanguageState] = useState('en')
+  const [payDay, setPayDayState] = useState(1)
   const [monthTrend, setMonthTrend] = useState([])
-  const [selectedMonth, setSelectedMonth] = useState(currentMonth())
+  const [selectedMonth, setSelectedMonth] = useState(null) // null until pay day is known
+  const [ready, setReady] = useState(false)
 
-  const refresh = useCallback(async (monthOverride) => {
-    const month = monthOverride || selectedMonth
-    const [cats, txs, billList, sum, curr, bals, lang, trend] = await Promise.all([
-      db.getCategories(),
-      db.getTransactions(),
-      db.getBills(),
-      db.getMonthSummary(month),
-      db.getCurrency(),
-      db.getBalances(),
-      db.getLanguage(),
-      db.getRecentMonthTotals(month, 6)
-    ])
-    setCategories(cats)
-    setTransactions(txs)
-    setBills(billList)
-    setSummary(sum)
-    setCurrencyState(curr)
-    setBalances(bals)
-    setLanguageState(lang)
-    setMonthTrend(trend)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMonth])
+  const refresh = useCallback(
+    async (monthOverride, payDayOverride) => {
+      const pd = payDayOverride ?? payDay
+      const month = monthOverride || selectedMonth || db.currentPeriodKey(pd)
+      const [cats, txs, billList, sum, curr, bals, lang, trend, pdFromStore] = await Promise.all([
+        db.getCategories(),
+        db.getTransactions(),
+        db.getBills(),
+        db.getMonthSummary(month, pd),
+        db.getCurrency(),
+        db.getBalances(),
+        db.getLanguage(),
+        db.getRecentMonthTotals(month, 3, pd),
+        db.getPayDay()
+      ])
+      setCategories(cats)
+      setTransactions(txs)
+      setBills(billList)
+      setSummary(sum)
+      setCurrencyState(curr)
+      setBalances(bals)
+      setLanguageState(lang)
+      setPayDayState(pdFromStore)
+      setMonthTrend(trend)
+      setSelectedMonth(month)
+      setReady(true)
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [selectedMonth, payDay]
+  )
 
   useEffect(() => {
-    refresh()
-  }, [refresh])
+    // On first load, figure out which pay period "now" falls into before
+    // fetching anything else, so the very first render already shows the
+    // right period rather than a plain calendar month.
+    ;(async () => {
+      const pd = await db.getPayDay()
+      const initial = db.currentPeriodKey(pd)
+      await refresh(initial, pd)
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function changeMonth(delta) {
     const next = shiftMonth(selectedMonth, delta)
     setSelectedMonth(next)
     refresh(next)
+  }
+
+  function goToMonth(monthKey) {
+    setSelectedMonth(monthKey)
+    refresh(monthKey)
   }
 
   const addTransaction = useCallback(
@@ -175,6 +193,18 @@ export function AppProvider({ children }) {
     [refresh]
   )
 
+  const changePayDay = useCallback(
+    async (day) => {
+      const newPayDay = await db.setPayDay(day)
+      // Re-anchor to whichever period "now" falls into under the new
+      // payday, rather than keeping the old period key, since its
+      // meaning has just changed.
+      const newSelected = db.currentPeriodKey(newPayDay)
+      await refresh(newSelected, newPayDay)
+    },
+    [refresh]
+  )
+
   const addBalanceAccount = useCallback(
     async (account) => {
       await db.addBalanceAccount(account)
@@ -199,9 +229,12 @@ export function AppProvider({ children }) {
     [refresh]
   )
 
+  const periodLabel = selectedMonth ? db.periodLabel(selectedMonth, payDay) : ''
+
   return (
     <AppContext.Provider
       value={{
+        ready,
         categories,
         transactions,
         bills,
@@ -210,10 +243,14 @@ export function AppProvider({ children }) {
         currency,
         language,
         changeLanguage,
+        payDay,
+        changePayDay,
+        periodLabel,
         monthTrend,
         t: (key) => translate(language, key),
         selectedMonth,
         changeMonth,
+        goToMonth,
         addTransaction,
         editTransaction,
         removeTransaction,

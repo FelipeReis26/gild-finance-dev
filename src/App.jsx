@@ -11,6 +11,7 @@ import Settings from './screens/Settings.jsx'
 import Balances from './screens/Balances.jsx'
 import Lock from './screens/Lock.jsx'
 import Onboarding from './screens/Onboarding.jsx'
+import AddToHomeScreenBanner from './screens/AddToHomeScreenBanner.jsx'
 import { getPasscode, isFirstRun } from './db.js'
 import { useEdgeSwipeBack } from './useSwipe.js'
 
@@ -67,10 +68,22 @@ export default function App() {
 
   if (locked === null || needsOnboarding === null) return null
   if (locked) return <Lock onUnlock={() => setLocked(false)} />
-  if (needsOnboarding) return <Onboarding onDone={(goToImport) => { setNeedsOnboarding(false); if (goToImport) setTab('settings') }} />
+  if (needsOnboarding)
+    return (
+      <>
+        <AddToHomeScreenBanner />
+        <Onboarding
+          onDone={(goToImport) => {
+            setNeedsOnboarding(false)
+            if (goToImport) setTab('settings')
+          }}
+        />
+      </>
+    )
 
   return (
     <AppProvider>
+      <AddToHomeScreenBanner />
       <div className="app-shell" {...edgeSwipe}>
         <div className="bg-blobs" aria-hidden="true">
           <span className="blob blob-gold" />

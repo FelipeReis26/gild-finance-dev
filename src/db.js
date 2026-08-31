@@ -11,7 +11,8 @@ const KEYS = {
   language: 'ft_language',
   passcode: 'ft_passcode',
   payDay: 'ft_payday',
-  onboarded: 'ft_onboarded'
+  onboarded: 'ft_onboarded',
+  a2hsDismissed: 'ft_a2hs_dismissed'
 }
 
 function load(key, fallback) {
@@ -253,6 +254,14 @@ export async function isFirstRun() {
 
 export async function completeOnboarding() {
   save(KEYS.onboarded, true)
+}
+
+export async function getA2HSDismissed() {
+  return load(KEYS.a2hsDismissed, false)
+}
+
+export async function dismissA2HS() {
+  save(KEYS.a2hsDismissed, true)
 }
 
 export async function getCategories() {

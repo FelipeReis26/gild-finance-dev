@@ -11,8 +11,10 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
   if (!summary) return <p className="muted">Loading</p>
 
   const s = currency.symbol
-  const pct = summary.budget ? Math.min(100, Math.round((summary.spent / summary.budget) * 100)) : 0
-  const dashOffset = CIRC * (1 - pct / 100)
+  const rawPct = summary.budget ? Math.round((summary.spent / summary.budget) * 100) : 0
+  const overBudget = rawPct > 100
+  const arcPct = Math.min(100, Math.max(0, rawPct))
+  const dashOffset = CIRC * (1 - arcPct / 100)
   const gaugeLabel = summary.byCategory.some((c) => c.monthlyBudget != null) ? t('ofBudgetUsed') : t('ofIncomeSpent')
 
   return (
@@ -47,14 +49,14 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
             <path
               d="M 20 110 A 90 90 0 0 1 200 110"
               fill="none"
-              stroke="var(--gold)"
+              stroke={overBudget ? 'var(--danger)' : 'var(--gold)'}
               strokeWidth="14"
               strokeLinecap="round"
               strokeDasharray={CIRC}
               strokeDashoffset={dashOffset}
             />
-            <text x="110" y="88" textAnchor="middle" fontSize="30" fontWeight="700" fill="var(--text-primary)">
-              {pct}%
+            <text x="110" y="88" textAnchor="middle" fontSize="30" fontWeight="700" fill={overBudget ? 'var(--danger)' : 'var(--text-primary)'}>
+              {rawPct}%
             </text>
             <text x="110" y="108" textAnchor="middle" fontSize="12" fill="var(--text-secondary)">
               {gaugeLabel}

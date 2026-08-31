@@ -82,7 +82,7 @@ body {
   position: relative;
   z-index: 1;
   flex: 1;
-  padding: calc(62px + env(safe-area-inset-top)) 20px calc(32px + env(safe-area-inset-bottom));
+  padding: calc(62px + env(safe-area-inset-top)) 20px calc(88px + env(safe-area-inset-bottom));
 }
 
 .screen {
@@ -321,9 +321,13 @@ input[type='date'] {
   margin-bottom: 6px;
 }
 
+/* Money entry is the focal act — instrument-grade figures */
 .amount-input {
-  font-size: 22px;
-  font-weight: 600;
+  height: 64px;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
 
 .segmented {
@@ -347,9 +351,9 @@ input[type='date'] {
   cursor: pointer;
 }
 
-.segment-active {
-  background: var(--glass-strong) !important;
-  color: var(--text-primary) !important;
+.segmented button.segment-active {
+  background: var(--glass-strong);
+  color: var(--text-primary);
   box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 
@@ -640,6 +644,37 @@ input[type='date'] {
   gap: 7px;
   padding: 0 42px;
   pointer-events: none;
+}
+
+/* Signature motion — the one authored moment: opening a period sweeps the
+   day ticks in around the dial, chronologically, and the reading settles
+   at center. Nothing else in the app animates an entrance. */
+.dial-tick {
+  animation: tick-in 0.3s ease-out backwards;
+}
+
+@keyframes tick-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.dial-center {
+  animation: center-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.15s backwards;
+}
+
+@keyframes center-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dial-tick,
+  .dial-center {
+    animation: none;
+  }
 }
 
 /* Engraved caps: the dial-print grammar (POWER RESERVE, SWISS MADE) */

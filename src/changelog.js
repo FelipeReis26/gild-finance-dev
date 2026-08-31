@@ -5,6 +5,8 @@ export const changelog = [
     summary: 'New look, calmer and more honest dashboard, and a slide-out menu',
     changes: [
       'A whole new look: a watch-dial face in black and gold — the pay period reads as a power reserve of day ticks, and your top budgets as small dials',
+      'Pay day can now follow a weekday rule: a fixed day of the month, the last chosen weekday (e.g. the last Friday), or the last working day of the month',
+      'The diamond app icon returns, redrawn in gold line-work to match the new look, along with matching launch screens',
       'The dashboard now leads with how much is left to spend this pay period and how many days it has to last, instead of a "% of budget used" figure that could read over 100% just because a big unbudgeted expense like rent had landed',
       'A pace bar shows how fast money is going against how far through the period you are, so overspending is visible before the period ends',
       'Consistent colours throughout: mint always means money in, apricot money out, and the alert colour is reserved for genuinely over-budget',

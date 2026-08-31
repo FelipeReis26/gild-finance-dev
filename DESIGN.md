@@ -140,7 +140,7 @@ components:
 
 **Creative North Star: "A Timepiece for Money"**
 
-Gild is haute horlogerie, not fintech. The ground is dial black (`#0E0F12`), text is chalk ink (`#EDEBE4`), and one champagne gold (`#C9A96A`) plays the role of applied metal: the balance numeral, the remaining-day ticks of the dial, the one primary action, and the active place in navigation. The pay period is rendered as a power reserve — a 296px dial with one tick per day, engine-turned (guilloché) circles inside, and the money left as the applied numeral at center. Budgets are complications: capped chronograph subdial arcs. Money movement is muted sage in, warm bronze out; coral appears only for genuinely over budget, in two calibrated shades.
+Gild is haute horlogerie, not fintech. The ground is dial black (`#0E0F12`), text is chalk ink (`#EDEBE4`), and one champagne gold (`#C9A96A`) plays the role of applied metal: the balance numeral, the remaining-day ticks of the dial, the one primary action, and the active place in navigation. The pay period is rendered as a power reserve — a 296px dial with one tick per day, engine-turned (guilloché) circles inside, and the money left as the applied numeral at center. Budgets are complications: capped chronograph subdial arcs, each ringed by twelve faint chapter ticks. Money movement is muted sage in, warm bronze out; coral appears only for genuinely over budget, in two calibrated shades.
 
 Two faces, strictly divided: Cinzel (500–700) exclusively for the balance numeral and the GILD wordmark — the applied metal — and Hanken Grotesk (400–800) for all other UI. The label grammar is engraved caps: 10px, 0.24em-tracked uppercase, the way POWER RESERVE is printed on a dial.
 
@@ -207,7 +207,7 @@ A single-column mobile shell, centered and capped at 480px, `overflow-x: hidden`
 
 ## Elevation & Depth
 
-Depth = 1px hairline border + soft dark drop shadow + a faint 1px inset top-light (`{colors.plate-inset}`). No blur, no gradients, no glow. Texture is permitted only inside the dial: the guilloché engine-turning (nine concentric ink circles at 0.035 opacity) — the one decorated surface in the world.
+Depth = 1px hairline border + soft dark drop shadow + a faint 1px inset top-light (`{colors.plate-inset}`). No blur, no gradients, no glow. Texture is permitted only inside the dial: the guilloché engine-turning (twelve concentric ink rings at 0.03 crossed by 36 radial spokes at 0.02 — a woven etching, never glow) — the one decorated surface in the world.
 
 ### Shadow Vocabulary
 - **Card lift** — `0 10px 26px rgba(0,0,0,0.35), inset 0 1px 0 var(--plate-inset)`: cards.
@@ -232,7 +232,7 @@ Soft corners on flat fills: 20px cards, 18px category rows, 16px primary button 
 Label left (14/600, ink-2, tabular; localized via `periodLabel(lang)` in db.js), two 40px mini-button chevrons right. Sits directly above the dial.
 
 ### The Dial (signature)
-A 296×296 `role="img"` instrument whose aria-label leads with the focal fact (what's left), then pace, then income/spent. Inside the SVG, back to front: nine guilloché circles (r = 22 + 11i, ink at 0.035); the chapter ring (r112, rule-soft); one tick per day of the pay period arranged from 12 o'clock — **spent days faint** (ink at 0.16, 1.5px), **remaining days gold** (0.8 opacity — the power reserve), **today long and bright** (gold-light, 3px, extended both ways). Overlaid at center: engraved caps label, the Cinzel gold numeral (coral when overspent), and the days-left · per-day subline. Future periods show a full reserve ("upcoming"); past periods show none ("period ended") — never a future period labeled ended.
+A 296×296 `role="img"` instrument whose aria-label leads with the focal fact (what's left), then pace, then income/spent. Inside the SVG, back to front: the guilloché (twelve rings r = 16 + 7i at 0.03, 36 spokes at 0.02); the rehaut register channel (two hairlines, r104 at 0.06 ink and r112 rule-soft); one tick per day of the pay period arranged from 12 o'clock — **spent days faint** (ink at 0.16), **remaining days gold** (0.8 — the power reserve), **today long and bright** (gold-light, 3px, extended both ways). Structural weight is separate from state color: the pay-day mark (index 0) is 2.5px, the period's quarter marks are 2px and longer, ordinary days 1.5px. Overlaid at center: engraved caps label, the Cinzel gold numeral (coral when overspent), and the days-left · per-day subline. Future periods show a full reserve ("upcoming"); past periods show none ("period ended") — never a future period labeled ended.
 
 ### Subdial Complications (signature)
 The top three budgets by utilization, as chronograph subdials: plate buttons (16px radius, max-width 116px) holding a 64px SVG — rule-soft track ring (r26, 4px) and a gold arc (coral when over) with round caps, **capped at 100%** — with the percent numeral at center (12.5/700, `--ui`, ink), the category name (11/600, ink-2, ellipsized) and spent figure (12/700 tabular) below. Each is a button with a money aria-label.
@@ -254,6 +254,7 @@ Full-width 50px plate rows (14px radius, 15/600) with a chevron and `aria-expand
 
 ### Insights (inside the disclosure)
 - **Spend trend:** paired 14px sage/bronze bars per month (0.5 opacity when unselected), each a button with a money aria-label.
+- **Entry overlays (Add/Edit transaction):** two-plate composition — *setting the instrument* (expense/income segmented control whose active segment tints to its money color, bronze out / sage in, over the amount field) then *the details* (category chip grid with always-accented icons, date, note); the gold action sits naked below the plates. Money entry is instrument-grade: `.amount-input` at 32/700 tabular in a 64px field. Validation errors render with `role="alert"` and clear on the next edit of any implicated field.
 - **Category breakdown (the breakdown ring):** a complication in the hero dial's own grammar — a 60-tick chapter bezel (ink, every 5th tick heavier) hugging a 13px category-accent band at 3.5px, with uniform 3px arc joints centered on every segment boundary (including the 12 o'clock closure; tiny segments clamp to a 1.5px minimum draw), and a rehaut hairline framing the center; the total sits centered (`--ui` 25/700, ink — a reading, not the balance) over the category count in 9px tracked engraved caps; below, a ranked list — accent dot, name, amount (600 weight tabular), share % muted right-aligned in a 32px column. The slim band + ticked bezel keep it precious rather than candy; the ranked amounts carry legibility when one category dominates.
 
 ### Chips, Inputs, Segmented
@@ -261,9 +262,13 @@ Full-width 50px plate rows (14px radius, 15/600) with a chevron and `aria-expand
 - **Inputs:** plate-2, hairline, 14px radius, 44px, 16px text (no mobile zoom); amount inputs 22/600; placeholders ink-3; date-picker glyph inverted for the dark ground.
 - **Segmented:** plate-2 track, 3px padding, active segment raised with inset highlight.
 
+## App identity mark
+
+The icon is **The Diamond** — the app's original diamond identity reborn in this world: a brilliant-cut diamond in champagne-gold line-work (solid outline; crown, girdle and pavilion facet lines at 0.55 opacity) on dial black. User-chosen from a three-mark hand (coin / diamond / dial). Two stroke weights ship: the master (20/12 at 1024, used for 512 and the iOS 1024) and a heavier small-size cut (34/20, used for 192/180) so the line-work holds at home-screen scale. The launch splash centers the mark at 62% on the full dial-black field. Masters live in `.impeccable/icon-src/` (`gild-icon.svg`, `gild-icon-small.svg`, `gild-splash.svg`); every shipped raster carries embedded provenance. Regenerate via qlmanage + sips.
+
 ## Motion
 
-Minimal and physical, one shared curve: `cubic-bezier(0.22, 1, 0.36, 1)`. The drawer slides in over 0.28s with a 0.25s scrim fade; the primary button compresses to 0.985 on press. The dial itself is still — a watch face, not an animation. No ambient or looping motion.
+Minimal and physical, one shared curve: `cubic-bezier(0.22, 1, 0.36, 1)`. **The one authored moment:** opening a period sweeps the day ticks in chronologically around the dial (`.dial-tick`, 0.3s each, staggered across 0.45s) while the center reading settles up into place (`.dial-center`, 0.55s, 0.15s delay); the sweep replays on period change (the dial SVG is keyed by period). Everything else stays functional: the drawer slides in over 0.28s with a scrim fade; the primary button compresses to 0.985 on press. No other entrance animates; no ambient or looping motion. `prefers-reduced-motion: reduce` disables the sweep and settle entirely.
 
 ## Accessibility
 
@@ -283,7 +288,7 @@ Fully realized in this world: the **Dashboard** (period row, dial, hero-stat pil
 
 **Carried dependency, not a rule:** icons are the Tabler icon font (`ti ti-*`), used as quiet single-color glyphs sized 13–24px, colored by context (ink-2 in chrome, category accent in icon chips, gold-text inside the primary button). Documented as the build's current dependency; a future icon decision may replace it without breaking this system.
 
-**Ceiling backlog** (finish-review polish ideas, not defects): weighted quarter ticks, a richer guilloché pattern, a rehaut register line, subdial tick rings.
+**Ceiling backlog:** cleared — weighted quarter/pay-day ticks, the engine-turned guilloché weave, the rehaut register channel, and 12-tick subdial rings all shipped in the jeweling pass.
 
 ## Do's and Don'ts
 

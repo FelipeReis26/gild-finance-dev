@@ -49,23 +49,30 @@ export default function AddTransaction({ prefill, editingId, onDone }) {
 
   return (
     <div className="screen">
-      <div className="card">
-        <p className="section-title" style={{ marginBottom: 14 }}>
-          {editingId ? t('editTransaction') : t('addTransaction')}
-        </p>
+      <p className="section-title">{editingId ? t('editTransaction') : t('addTransaction')}</p>
 
+      {/* Setting the instrument: direction, then the figure itself. */}
+      <div className="card">
         <div className="segmented">
           <button
             type="button"
             className={type === 'expense' ? 'segment-active' : ''}
-            onClick={() => setType('expense')}
+            style={type === 'expense' ? { color: 'var(--debit)' } : undefined}
+            onClick={() => {
+              setType('expense')
+              setError('')
+            }}
           >
             {t('expense')}
           </button>
           <button
             type="button"
             className={type === 'income' ? 'segment-active' : ''}
-            onClick={() => setType('income')}
+            style={type === 'income' ? { color: 'var(--credit)' } : undefined}
+            onClick={() => {
+              setType('income')
+              setError('')
+            }}
           >
             {t('income')}
           </button>
@@ -79,10 +86,18 @@ export default function AddTransaction({ prefill, editingId, onDone }) {
           type="number"
           inputMode="decimal"
           placeholder="0.00"
+          autoFocus={!editingId}
           value={amount}
-          onChange={(e) => setAmount(e.target.value)}
+          onChange={(e) => {
+            setAmount(e.target.value)
+            setError('')
+          }}
+          style={{ marginBottom: 0 }}
         />
+      </div>
 
+      {/* The details */}
+      <div className="card">
         <label className="field-label">{t('category')}</label>
         <div className="grid-2 category-grid">
           {relevantCategories.map((c) => (
@@ -91,9 +106,12 @@ export default function AddTransaction({ prefill, editingId, onDone }) {
               key={c.id}
               className={categoryId === c.id ? 'category-chip category-chip-active' : 'category-chip'}
               style={categoryId === c.id ? { '--chip-accent': c.accent, '--chip-tint': c.tint } : undefined}
-              onClick={() => setCategoryId(c.id)}
+              onClick={() => {
+                setCategoryId(c.id)
+                setError('')
+              }}
             >
-              <i className={`ti ${c.icon}`} aria-hidden="true"></i> {c.name}
+              <i className={`ti ${c.icon}`} style={{ color: c.accent }} aria-hidden="true"></i> {c.name}
             </button>
           ))}
         </div>
@@ -102,25 +120,26 @@ export default function AddTransaction({ prefill, editingId, onDone }) {
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
 
         <label className="field-label">{t('noteOptional')}</label>
-        <input type="text" placeholder="Weekly shop" value={note} onChange={(e) => setNote(e.target.value)} />
-
-        {error && <p className="error-text">{error}</p>}
-
-        <button type="button" className="primary-button" onClick={handleSave}>
-          {t('saveTransaction')}
-        </button>
-
-        {editingId && (
-          <button
-            type="button"
-            className="secondary-button"
-            style={{ width: '100%', marginTop: 10 }}
-            onClick={handleDelete}
-          >
-            {t('deleteTransaction')}
-          </button>
-        )}
+        <input
+          type="text"
+          placeholder={t('notePlaceholder')}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          style={{ marginBottom: 0 }}
+        />
       </div>
+
+      {error && <p className="error-text" role="alert" style={{ margin: '0 4px' }}>{error}</p>}
+
+      <button type="button" className="primary-button" onClick={handleSave}>
+        {t('saveTransaction')}
+      </button>
+
+      {editingId && (
+        <button type="button" className="secondary-button" style={{ width: '100%' }} onClick={handleDelete}>
+          {t('deleteTransaction')}
+        </button>
+      )}
     </div>
   )
 }

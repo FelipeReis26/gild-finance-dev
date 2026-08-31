@@ -34,6 +34,7 @@ const strings = {
   category: { en: 'Category', fr: 'Catégorie', 'pt-BR': 'Categoria', it: 'Categoria', es: 'Categoría' },
   date: { en: 'Date', fr: 'Date', 'pt-BR': 'Data', it: 'Data', es: 'Fecha' },
   noteOptional: { en: 'Note (optional)', fr: 'Note (facultatif)', 'pt-BR': 'Nota (opcional)', it: 'Nota (facoltativo)', es: 'Nota (opcional)' },
+  notePlaceholder: { en: 'Weekly shop', fr: 'Courses de la semaine', 'pt-BR': 'Compras da semana', it: 'Spesa settimanale', es: 'Compra semanal' },
   saveTransaction: { en: 'Save transaction', fr: 'Enregistrer la transaction', 'pt-BR': 'Salvar transação', it: 'Salva transazione', es: 'Guardar transacción' },
   deleteTransaction: { en: 'Delete transaction', fr: 'Supprimer la transaction', 'pt-BR': 'Excluir transação', it: 'Elimina transazione', es: 'Eliminar transacción' },
   save: { en: 'Save', fr: 'Enregistrer', 'pt-BR': 'Salvar', it: 'Salva', es: 'Guardar' },
@@ -164,6 +165,10 @@ const strings = {
   payDayField: { en: 'Day of month you get paid', fr: 'Jour du mois où vous êtes payé', 'pt-BR': 'Dia do mês em que você recebe', it: 'Giorno del mese in cui vieni pagato', es: 'Día del mes en que te pagan' },
   payDayNote: { en: "Your budget month runs from this day to the day before it next month, instead of the 1st to the end of the calendar month. Set this to 1 to use plain calendar months.", fr: "Votre mois budgétaire va de ce jour jusqu'à la veille de ce jour le mois suivant, au lieu du 1er à la fin du mois calendaire. Réglez sur 1 pour utiliser les mois calendaires normaux.", 'pt-BR': 'Seu mês de orçamento vai deste dia até o dia anterior no mês seguinte, em vez do dia 1 até o fim do mês do calendário. Defina como 1 para usar meses de calendário normais.', it: "Il tuo mese di budget va da questo giorno al giorno prima nel mese successivo, invece che dal 1° alla fine del mese di calendario. Imposta 1 per usare i normali mesi di calendario.", es: 'Tu mes de presupuesto va desde este día hasta el día anterior al mes siguiente, en lugar del día 1 al final del mes calendario. Pon 1 para usar meses de calendario normales.' },
   payDayCurrent: { en: 'Current period', fr: 'Période actuelle', 'pt-BR': 'Período atual', it: 'Periodo attuale', es: 'Período actual' },
+  payDayModeDay: { en: 'A day of the month', fr: 'Un jour du mois', 'pt-BR': 'Um dia do mês', it: 'Un giorno del mese', es: 'Un día del mes' },
+  payDayModeLastWeekday: { en: 'Last weekday of the month', fr: 'Dernier jour de semaine du mois', 'pt-BR': 'Último dia da semana do mês', it: 'Ultimo giorno della settimana del mese', es: 'Último día de la semana del mes' },
+  payDayModeLastWorking: { en: 'Last working day of the month', fr: 'Dernier jour ouvré du mois', 'pt-BR': 'Último dia útil do mês', it: 'Ultimo giorno lavorativo del mese', es: 'Último día laborable del mes' },
+  weekday: { en: 'Weekday', fr: 'Jour de la semaine', 'pt-BR': 'Dia da semana', it: 'Giorno della settimana', es: 'Día de la semana' },
 
   // Dashboard burn-down hero + progressive disclosure (v2.1)
   leftToSpend: { en: 'Left to spend', fr: 'Reste à dépenser', 'pt-BR': 'Disponível para gastar', it: 'Ancora da spendere', es: 'Disponible para gastar' },

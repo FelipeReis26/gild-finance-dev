@@ -73,40 +73,68 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
 
       <div className="hero">
         <div className="dial-wrap" role="img" aria-label={dialLabel}>
-          <svg className="dial" viewBox="0 0 296 296" aria-hidden="true">
-            {Array.from({ length: 9 }, (_, i) => (
+          <svg className="dial" viewBox="0 0 296 296" aria-hidden="true" key={selectedMonth}>
+            {/* Engine turning: tight concentric rings crossed by radial spokes,
+                kept at etching opacity — texture, never glow. */}
+            {Array.from({ length: 12 }, (_, i) => (
               <circle
                 key={`g${i}`}
                 cx="148"
                 cy="148"
-                r={22 + i * 11}
+                r={16 + i * 7}
                 fill="none"
                 stroke="var(--ink)"
-                strokeOpacity="0.035"
+                strokeOpacity="0.03"
                 strokeWidth="1"
               />
             ))}
-            <circle cx="148" cy="148" r="112" fill="none" stroke="var(--rule-soft)" strokeWidth="1" />
-            {Array.from({ length: totalDays }, (_, i) => {
-              const a = ((i / totalDays) * 360 - 90) * (Math.PI / 180)
-              const isToday = i === todayIdx
-              const r1 = isToday ? 121 : 127
-              const r2 = isToday ? 143 : 138
-              const past = i < elapsedDays
+            {Array.from({ length: 36 }, (_, i) => {
+              const a = ((i / 36) * 360 - 90) * (Math.PI / 180)
               return (
                 <line
-                  key={i}
-                  x1={148 + Math.cos(a) * r1}
-                  y1={148 + Math.sin(a) * r1}
-                  x2={148 + Math.cos(a) * r2}
-                  y2={148 + Math.sin(a) * r2}
-                  stroke={isToday ? 'var(--gold-light)' : past ? 'var(--ink)' : 'var(--gold)'}
-                  strokeOpacity={isToday ? 1 : past ? 0.16 : 0.8}
-                  strokeWidth={isToday ? 3 : 1.5}
-                  strokeLinecap="round"
+                  key={`s${i}`}
+                  x1={148 + Math.cos(a) * 20}
+                  y1={148 + Math.sin(a) * 20}
+                  x2={148 + Math.cos(a) * 95}
+                  y2={148 + Math.sin(a) * 95}
+                  stroke="var(--ink)"
+                  strokeOpacity="0.02"
+                  strokeWidth="1"
                 />
               )
             })}
+            {/* Rehaut: a two-line register channel between the face and the ticks */}
+            <circle cx="148" cy="148" r="104" fill="none" stroke="var(--ink)" strokeOpacity="0.06" strokeWidth="1" />
+            <circle cx="148" cy="148" r="112" fill="none" stroke="var(--rule-soft)" strokeWidth="1" />
+            {(() => {
+              // Structural weight marks the period's quarters (and the pay day
+              // itself, index 0); color still carries past/remaining/today.
+              const q = new Set([0, Math.round(totalDays / 4), Math.round(totalDays / 2), Math.round((3 * totalDays) / 4)])
+              return Array.from({ length: totalDays }, (_, i) => {
+                const a = ((i / totalDays) * 360 - 90) * (Math.PI / 180)
+                const isToday = i === todayIdx
+                const isQuarter = q.has(i)
+                const isStart = i === 0
+                const r1 = isToday ? 121 : isQuarter ? 123 : 127
+                const r2 = isToday ? 143 : isQuarter ? 140 : 138
+                const past = i < elapsedDays
+                return (
+                  <line
+                    key={i}
+                    className="dial-tick"
+                    style={{ animationDelay: `${(i / totalDays) * 0.45}s` }}
+                    x1={148 + Math.cos(a) * r1}
+                    y1={148 + Math.sin(a) * r1}
+                    x2={148 + Math.cos(a) * r2}
+                    y2={148 + Math.sin(a) * r2}
+                    stroke={isToday ? 'var(--gold-light)' : past ? 'var(--ink)' : 'var(--gold)'}
+                    strokeOpacity={isToday ? 1 : past ? 0.16 : 0.8}
+                    strokeWidth={isToday ? 3 : isStart ? 2.5 : isQuarter ? 2 : 1.5}
+                    strokeLinecap="round"
+                  />
+                )
+              })
+            })()}
           </svg>
           <div className="dial-center">
             <p className="engraved">{over ? t('overspent') : t('leftToSpend')}</p>
@@ -157,6 +185,21 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
                   aria-label={`${c.name}: ${money(c.spent)} / ${money(c.effectiveBudget)}`}
                 >
                   <svg viewBox="0 0 64 64" aria-hidden="true">
+                    {Array.from({ length: 12 }, (_, i) => {
+                      const a = ((i / 12) * 360 - 90) * (Math.PI / 180)
+                      return (
+                        <line
+                          key={`t${i}`}
+                          x1={32 + Math.cos(a) * 29.5}
+                          y1={32 + Math.sin(a) * 29.5}
+                          x2={32 + Math.cos(a) * 31.5}
+                          y2={32 + Math.sin(a) * 31.5}
+                          stroke="var(--ink)"
+                          strokeOpacity="0.15"
+                          strokeWidth="1"
+                        />
+                      )
+                    })}
                     <circle cx="32" cy="32" r={r} fill="none" stroke="var(--rule-soft)" strokeWidth="4" />
                     <circle
                       cx="32"

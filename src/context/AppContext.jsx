@@ -112,6 +112,45 @@ export function AppProvider({ children }) {
     [refresh]
   )
 
+  // Delete-with-undo: the delete happens immediately, but the deleted
+  // transaction's data is kept around for a few seconds so it can be
+  // put back exactly as it was if the person taps Undo.
+  const [undoState, setUndoState] = useState(null) // { tx, timerId } | null
+
+  const deleteTransactionWithUndo = useCallback(
+    async (txId) => {
+      const txToDelete = transactions.find((t) => t.id === txId)
+      await db.deleteTransaction(txId)
+      await refresh()
+      if (txToDelete) {
+        setUndoState((prev) => {
+          if (prev?.timerId) clearTimeout(prev.timerId)
+          const timerId = setTimeout(() => setUndoState(null), 6000)
+          return { tx: txToDelete, timerId }
+        })
+      }
+    },
+    [refresh, transactions]
+  )
+
+  const undoDelete = useCallback(async () => {
+    setUndoState((prev) => {
+      if (prev?.timerId) clearTimeout(prev.timerId)
+      if (prev?.tx) {
+        const { id, ...rest } = prev.tx
+        db.addTransaction(rest).then(() => refresh())
+      }
+      return null
+    })
+  }, [refresh])
+
+  const dismissUndo = useCallback(() => {
+    setUndoState((prev) => {
+      if (prev?.timerId) clearTimeout(prev.timerId)
+      return null
+    })
+  }, [])
+
   const importTransactions = useCallback(
     async (list) => {
       const count = await db.importTransactions(list)
@@ -172,6 +211,14 @@ export function AppProvider({ children }) {
   const removeCategory = useCallback(
     async (categoryId) => {
       await db.deleteCategory(categoryId)
+      await refresh()
+    },
+    [refresh]
+  )
+
+  const restoreCategory = useCallback(
+    async (categoryId) => {
+      await db.restoreCategory(categoryId)
       await refresh()
     },
     [refresh]
@@ -254,6 +301,10 @@ export function AppProvider({ children }) {
         addTransaction,
         editTransaction,
         removeTransaction,
+        deleteTransactionWithUndo,
+        undoState,
+        undoDelete,
+        dismissUndo,
         importTransactions,
         addBill,
         payBill,
@@ -262,6 +313,7 @@ export function AppProvider({ children }) {
         addCategory,
         editCategory,
         removeCategory,
+        restoreCategory,
         changeCurrency,
         addBalanceAccount,
         addBalanceEntry,

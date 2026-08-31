@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
-import { currencyOptions, iconOptions, exportBackup, importBackup, getPasscode, setPasscode, clearPasscode } from '../db.js'
+import { currencyOptions, iconOptions, exportBackup, importBackup, summarizeBackup, findImportDuplicates, getPasscode, setPasscode, clearPasscode } from '../db.js'
 import { languageOptions } from '../i18n.js'
 import { changelog } from '../changelog.js'
 
@@ -142,14 +142,15 @@ function LanguageScreen({ onBack, t }) {
 }
 
 function CategoriesScreen({ onBack, t }) {
-  const { categories, transactions, addCategory, editCategory, removeCategory } = useApp()
+  const { categories, transactions, addCategory, editCategory, removeCategory, restoreCategory } = useApp()
   const [newName, setNewName] = useState('')
   const [newIcon, setNewIcon] = useState(iconOptions[0])
   const [newKind, setNewKind] = useState('expense')
   const [error, setError] = useState('')
 
-  const expenseCategories = categories.filter((c) => c.kind !== 'income')
-  const incomeCategories = categories.filter((c) => c.kind === 'income')
+  const expenseCategories = categories.filter((c) => c.kind !== 'income' && !c.archived)
+  const incomeCategories = categories.filter((c) => c.kind === 'income' && !c.archived)
+  const archivedCategories = categories.filter((c) => c.archived)
 
   async function handleAddCategory() {
     if (!newName.trim()) {
@@ -169,9 +170,7 @@ function CategoriesScreen({ onBack, t }) {
   async function handleRemove(cat) {
     const inUse = transactions.some((tx) => tx.categoryId === cat.id)
     if (inUse) {
-      const ok = window.confirm(
-        `"${cat.name}" has existing transactions. Deleting it won't remove those, they'll just show as uncategorized. Delete anyway?`
-      )
+      const ok = window.confirm(t('archiveCategoryConfirm').replace('{name}', cat.name))
       if (!ok) return
     }
     await removeCategory(cat.id)
@@ -218,6 +217,24 @@ function CategoriesScreen({ onBack, t }) {
     )
   }
 
+  function renderArchivedRow(c) {
+    return (
+      <div key={c.id} className="cat-row">
+        <div className="cat-icon" style={{ background: c.tint, borderColor: c.borderTint }}>
+          <i className={`ti ${c.icon}`} style={{ color: c.accent, fontSize: 16 }} aria-hidden="true"></i>
+        </div>
+        <div className="cat-body">
+          <p className="row-title" style={{ margin: 0 }}>
+            {c.name}
+          </p>
+        </div>
+        <button type="button" className="mini-button" onClick={() => restoreCategory(c.id)}>
+          {t('restore')}
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className="screen">
       <BackButton onBack={onBack} label={t('back')} />
@@ -227,6 +244,16 @@ function CategoriesScreen({ onBack, t }) {
 
       <p className="section-title">{t('incomeCategories')}</p>
       <div className="stack">{incomeCategories.map((c) => renderCategoryRow(c, false))}</div>
+
+      {archivedCategories.length > 0 && (
+        <>
+          <p className="section-title">{t('archivedCategories')}</p>
+          <p className="muted" style={{ fontSize: 12, marginTop: -6 }}>
+            {t('archivedCategoriesNote')}
+          </p>
+          <div className="stack">{archivedCategories.map(renderArchivedRow)}</div>
+        </>
+      )}
 
       <div className="card">
         <p className="field-label">{t('newCategoryName')}</p>
@@ -360,51 +387,83 @@ function SecurityScreen({ onBack, t }) {
 }
 
 function DataScreen({ onBack, t }) {
-  const { importTransactions, refresh } = useApp()
+  const { importTransactions, currency, refresh } = useApp()
   const fileRef = useRef(null)
   const importRef = useRef(null)
   const [backupMsg, setBackupMsg] = useState('')
   const [importMsg, setImportMsg] = useState('')
+  const [restorePreview, setRestorePreview] = useState(null) // { data, summary }
+  const [importPreview, setImportPreview] = useState(null) // { list }
 
-  async function handleExport() {
-    const data = await exportBackup()
+  function downloadJson(data, filename) {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `gild-backup-${new Date().toISOString().slice(0, 10)}.json`
+    a.download = filename
     a.click()
     URL.revokeObjectURL(url)
   }
 
-  async function handleImport(e) {
+  async function handleExport() {
+    const data = await exportBackup()
+    downloadJson(data, `gild-backup-${new Date().toISOString().slice(0, 10)}.json`)
+  }
+
+  async function handleImportFileSelected(e) {
     const file = e.target.files?.[0]
     if (!file) return
     try {
       const text = await file.text()
       const data = JSON.parse(text)
-      await importBackup(data)
-      await refresh()
-      setBackupMsg(t('backupRestored'))
+      const summary = summarizeBackup(data)
+      setRestorePreview({ data, summary })
+      setBackupMsg('')
     } catch {
       setBackupMsg(t('couldNotReadBackup'))
     }
     e.target.value = ''
   }
 
-  async function handleTransactionImport(e) {
+  async function handleConfirmRestore() {
+    if (!restorePreview) return
+    // Safety net: always download a backup of what's currently here,
+    // right before it gets overwritten, in case the restore turns out
+    // to be a mistake.
+    const safety = await exportBackup()
+    downloadJson(safety, `gild-pre-restore-safety-backup-${new Date().toISOString().slice(0, 10)}.json`)
+    await importBackup(restorePreview.data)
+    await refresh()
+    setRestorePreview(null)
+    setBackupMsg(t('backupRestored'))
+  }
+
+  async function handleImportFileForTransactions(e) {
     const file = e.target.files?.[0]
     if (!file) return
     try {
       const text = await file.text()
       const list = JSON.parse(text)
-      const count = await importTransactions(list)
-      setImportMsg(`${t('addedTransactions')} ${count}`)
+      const withDuplicateFlags = await findImportDuplicates(list)
+      setImportPreview({ list: withDuplicateFlags })
+      setImportMsg('')
     } catch {
       setImportMsg(t('couldNotReadFile'))
     }
     e.target.value = ''
   }
+
+  async function handleConfirmImport(includeDuplicates) {
+    if (!importPreview) return
+    const toImport = includeDuplicates
+      ? importPreview.list
+      : importPreview.list.filter((t) => !t.isDuplicate)
+    const count = await importTransactions(toImport)
+    setImportPreview(null)
+    setImportMsg(`${t('addedTransactions')} ${count}`)
+  }
+
+  const duplicateCount = importPreview ? importPreview.list.filter((t) => t.isDuplicate).length : 0
 
   return (
     <div className="screen">
@@ -423,21 +482,126 @@ function DataScreen({ onBack, t }) {
             {t('restoreBackup')}
           </button>
         </div>
-        <input type="file" accept="application/json" ref={fileRef} onChange={handleImport} hidden />
+        <input type="file" accept="application/json" ref={fileRef} onChange={handleImportFileSelected} hidden />
         {backupMsg && <p className="muted" style={{ marginTop: 10, marginBottom: 0, fontSize: 13 }}>{backupMsg}</p>}
       </div>
+
+      {restorePreview && (
+        <div className="card">
+          <p className="section-title" style={{ marginBottom: 10 }}>
+            {t('restorePreviewTitle')}
+          </p>
+          {restorePreview.summary.valid ? (
+            <>
+              <ul style={{ margin: '0 0 12px', paddingLeft: 18, fontSize: 13, color: 'var(--text-secondary)' }}>
+                <li>{restorePreview.summary.transactions} {t('navActivity').toLowerCase()}</li>
+                <li>{restorePreview.summary.categories} {t('categoriesSettings').toLowerCase()}</li>
+                <li>{restorePreview.summary.bills} {t('bills').toLowerCase()}</li>
+                <li>{restorePreview.summary.balances} {t('accounts').toLowerCase()}</li>
+                {restorePreview.summary.currency && <li>{t('currency')}: {restorePreview.summary.currency}</li>}
+              </ul>
+              {restorePreview.summary.issues.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  {restorePreview.summary.issues.map((issue, i) => (
+                    <p key={i} className="error-text" style={{ marginTop: 0 }}>
+                      {issue}
+                    </p>
+                  ))}
+                </div>
+              )}
+              <p className="muted" style={{ fontSize: 12, marginBottom: 14 }}>
+                {t('restoreSafetyNote')}
+              </p>
+              <div className="row gap">
+                <button type="button" className="secondary-button" onClick={() => setRestorePreview(null)}>
+                  {t('discard')}
+                </button>
+                <button type="button" className="primary-button" onClick={handleConfirmRestore}>
+                  {t('restoreBackup')}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              {restorePreview.summary.issues.map((issue, i) => (
+                <p key={i} className="error-text" style={{ marginTop: 0 }}>
+                  {issue}
+                </p>
+              ))}
+              <button
+                type="button"
+                className="secondary-button"
+                style={{ width: '100%' }}
+                onClick={() => setRestorePreview(null)}
+              >
+                {t('discard')}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       <p className="section-title">{t('importTransactionsTitle')}</p>
       <div className="card">
         <p className="muted" style={{ marginTop: 0, marginBottom: 14, fontSize: 13 }}>
           {t('importTransactionsNote')}
         </p>
-        <button type="button" className="secondary-button" style={{ width: '100%' }} onClick={() => importRef.current?.click()}>
+        <button
+          type="button"
+          className="secondary-button"
+          style={{ width: '100%' }}
+          onClick={() => importRef.current?.click()}
+        >
           {t('importTransactionsTitle')}
         </button>
-        <input type="file" accept="application/json" ref={importRef} onChange={handleTransactionImport} hidden />
+        <input type="file" accept="application/json" ref={importRef} onChange={handleImportFileForTransactions} hidden />
         {importMsg && <p className="muted" style={{ marginTop: 10, marginBottom: 0, fontSize: 13 }}>{importMsg}</p>}
       </div>
+
+      {importPreview && (
+        <div className="card">
+          <p className="section-title" style={{ marginBottom: 10 }}>
+            {importPreview.list.length} {t('importReadyTitle')}
+          </p>
+          {duplicateCount > 0 ? (
+            <>
+              <p className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
+                {duplicateCount} {t('importDuplicatesNote')}
+              </p>
+              <div className="row gap">
+                <button type="button" className="secondary-button" onClick={() => handleConfirmImport(false)}>
+                  {t('importSkipDuplicates')} ({importPreview.list.length - duplicateCount})
+                </button>
+                <button type="button" className="primary-button" onClick={() => handleConfirmImport(true)}>
+                  {t('importAllAnyway')}
+                </button>
+              </div>
+              <button
+                type="button"
+                className="secondary-button"
+                style={{ width: '100%', marginTop: 10 }}
+                onClick={() => setImportPreview(null)}
+              >
+                {t('discard')}
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
+                {t('importNoDuplicates')}
+              </p>
+              <div className="row gap">
+                <button type="button" className="secondary-button" onClick={() => setImportPreview(null)}>
+                  {t('discard')}
+                </button>
+                <button type="button" className="primary-button" onClick={() => handleConfirmImport(true)}>
+                  {t('importTransactionsTitle')}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -492,9 +656,9 @@ function SubScreenSwipeWrapper({ onBack, children }) {
   )
 }
 
-export default function Settings() {
+export default function Settings({ initialView }) {
   const { t } = useApp()
-  const [view, setView] = useState('menu')
+  const [view, setView] = useState(initialView || 'menu')
   const back = () => setView('menu')
 
   if (view === 'currency')

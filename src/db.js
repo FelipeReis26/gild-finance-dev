@@ -1,6 +1,14 @@
 // Data layer. Every function is async so the storage backend can be
 // swapped for @capacitor-community/sqlite later without touching
 // any screen code.
+//
+// Money is stored internally as integer cents (e.g. 1099 = €10.99),
+// never as a float, so repeated summing across many transactions
+// can't drift the way decimal floating-point addition can. Every
+// exported function still accepts and returns plain decimal amounts
+// (9.99, not 999) — the cents conversion happens at the read/write
+// boundary inside this file, so nothing outside db.js needs to know
+// about it or change.
 
 const KEYS = {
   transactions: 'ft_transactions',
@@ -12,8 +20,12 @@ const KEYS = {
   passcode: 'ft_passcode',
   payDay: 'ft_payday',
   onboarded: 'ft_onboarded',
-  a2hsDismissed: 'ft_a2hs_dismissed'
+  a2hsDismissed: 'ft_a2hs_dismissed',
+  schemaVersion: 'ft_schema_version'
 }
+
+const SCHEMA_VERSION = 2
+const APP_VERSION = '2.0.0'
 
 function load(key, fallback) {
   const raw = localStorage.getItem(key)
@@ -28,6 +40,85 @@ function load(key, fallback) {
 function save(key, value) {
   localStorage.setItem(key, JSON.stringify(value))
 }
+
+function toCents(value) {
+  const n = typeof value === 'number' ? value : parseFloat(value)
+  if (Number.isNaN(n)) return 0
+  return Math.round(n * 100)
+}
+
+function fromCents(cents) {
+  if (cents == null) return cents
+  return Math.round(cents) / 100
+}
+
+// One-time migration from decimal-float money storage (schema 1, every
+// deploy before this one) to integer cents (schema 2). Runs once, the
+// moment this module is first loaded, before any exported function can
+// touch storage. Idempotent — does nothing once the version flag is set.
+function migrateMoneyToCentsIfNeeded() {
+  const currentVersion = parseInt(localStorage.getItem(KEYS.schemaVersion) || '1', 10)
+  if (currentVersion >= SCHEMA_VERSION) return
+
+  const txs = load(KEYS.transactions, null)
+  let txSumBefore = 0
+  if (txs) {
+    txSumBefore = txs.reduce((sum, t) => sum + (typeof t.amount === 'number' ? t.amount : 0), 0)
+    txs.forEach((t) => {
+      if (typeof t.amount === 'number') t.amount = toCents(t.amount)
+    })
+    save(KEYS.transactions, txs)
+  }
+
+  const cats = load(KEYS.categories, null)
+  if (cats) {
+    cats.forEach((c) => {
+      if (typeof c.monthlyBudget === 'number') c.monthlyBudget = toCents(c.monthlyBudget)
+    })
+    save(KEYS.categories, cats)
+  }
+
+  const bills = load(KEYS.bills, null)
+  if (bills) {
+    bills.forEach((b) => {
+      if (typeof b.amount === 'number') b.amount = toCents(b.amount)
+    })
+    save(KEYS.bills, bills)
+  }
+
+  const balances = load(KEYS.balances, null)
+  if (balances) {
+    balances.forEach((a) => {
+      (a.entries || []).forEach((e) => {
+        if (typeof e.value === 'number') e.value = toCents(e.value)
+      })
+    })
+    save(KEYS.balances, balances)
+  }
+
+  localStorage.setItem(KEYS.schemaVersion, String(SCHEMA_VERSION))
+
+  // Verify: the migrated cents total, converted back to decimal, should
+  // match the original decimal total to within a rounding tolerance of
+  // half a cent per record. If not, something about this migration is
+  // wrong — logged so it's visible in the console rather than silently
+  // corrupting figures.
+  if (txs && txs.length) {
+    const txSumAfter = txs.reduce((sum, t) => sum + t.amount, 0) / 100
+    const tolerance = 0.005 * txs.length
+    if (Math.abs(txSumAfter - txSumBefore) > tolerance) {
+      // eslint-disable-next-line no-console
+      console.error(
+        'Money migration total mismatch — before:',
+        txSumBefore,
+        'after:',
+        txSumAfter
+      )
+    }
+  }
+}
+
+migrateMoneyToCentsIfNeeded()
 
 function todayLocal() {
   const d = new Date()
@@ -80,22 +171,42 @@ function utcDate(y, m, d) {
   return new Date(Date.UTC(y, m - 1, d))
 }
 
-function fmtUtcDate(d) {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+// Banks typically settle a salary on the nearest working day before a
+// payday that falls on a weekend, rather than the weekend date itself.
+// Saturday shifts back one day, Sunday shifts back two, landing on the
+// preceding Friday (possibly rolling into the previous month, which
+// plain millisecond subtraction on a UTC Date handles correctly).
+function adjustToWorkingDay(date) {
+  const dow = date.getUTCDay() // 0 = Sunday, 6 = Saturday
+  if (dow === 6) return new Date(date.getTime() - 86400000)
+  if (dow === 0) return new Date(date.getTime() - 2 * 86400000)
+  return date
+}
+
+// The actual date a given month's payday lands on, weekend-adjusted.
+// payDay <= 1 is the "just use plain calendar months" sentinel value,
+// not a real payday, so it's deliberately left unadjusted — the 1st of
+// the month should never shift just because a plain calendar-month
+// user happens to have a weekend at the start of a month.
+function actualPayDate(y, m, payDay) {
+  const monthKey = `${y}-${String(m).padStart(2, '0')}`
+  const day = Math.min(payDay, daysInMonth(monthKey))
+  const date = utcDate(y, m, day)
+  return payDay <= 1 ? date : adjustToWorkingDay(date)
 }
 
 // The period identified by `periodKey` (e.g. '2026-07') starts on
-// min(payDay, days in that month) of that month, and ends the day
-// before the next period starts. With payDay=1 this is exactly a
-// plain calendar month.
+// min(payDay, days in that month) of that month — moved to the
+// nearest working day before if that lands on a weekend — and ends
+// the day before the next period starts. With payDay=1 this is
+// exactly a plain calendar month.
 export function periodBounds(periodKey, payDay) {
   const [y, m] = periodKey.split('-').map(Number)
-  const startDay = Math.min(payDay, daysInMonth(periodKey))
-  const start = utcDate(y, m, startDay)
+  const start = actualPayDate(y, m, payDay)
   const nextKey = shiftMonthPrefix(periodKey, 1)
   const [ny, nm] = nextKey.split('-').map(Number)
-  const nextStartDay = Math.min(payDay, daysInMonth(nextKey))
-  const end = new Date(utcDate(ny, nm, nextStartDay).getTime() - 86400000)
+  const nextStart = actualPayDate(ny, nm, payDay)
+  const end = new Date(nextStart.getTime() - 86400000)
   return { start, end }
 }
 
@@ -110,8 +221,9 @@ export function inPeriod(dateStr, periodKey, payDay) {
 export function currentPeriodKey(payDay) {
   const [y, m, d] = todayLocal().split('-').map(Number)
   const thisMonthKey = `${y}-${String(m).padStart(2, '0')}`
-  const clampedPayDay = Math.min(payDay, daysInMonth(thisMonthKey))
-  return d >= clampedPayDay ? thisMonthKey : shiftMonthPrefix(thisMonthKey, -1)
+  const todayTs = utcDate(y, m, d).getTime()
+  const thisPayDate = actualPayDate(y, m, payDay)
+  return todayTs >= thisPayDate.getTime() ? thisMonthKey : shiftMonthPrefix(thisMonthKey, -1)
 }
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -149,22 +261,25 @@ export function billDateWithinPeriod(periodKey, payDay, dueDay) {
 
 // monthlyBudget is optional. A category with no budget is tracked but
 // never flagged as over spent, and doesn't count toward the overall gauge.
+// `archived` categories are hidden from pickers for new transactions but
+// keep their name/icon/color so old transactions still display correctly,
+// and can be restored later.
 const defaultCategories = [
-  { id: 'rent', name: 'Rent', icon: 'ti-home', monthlyBudget: null, accent: '#6FBFA0', tint: 'rgba(111, 191, 160, 0.16)', borderTint: 'rgba(111, 191, 160, 0.35)', kind: 'expense' },
-  { id: 'fuel-insurance', name: 'Fuel & insurance', icon: 'ti-gas-station', monthlyBudget: null, accent: '#7C93D6', tint: 'rgba(124, 147, 214, 0.16)', borderTint: 'rgba(124, 147, 214, 0.35)', kind: 'expense' },
-  { id: 'streaming', name: 'Streaming', icon: 'ti-device-tv', monthlyBudget: null, accent: '#B67CC9', tint: 'rgba(182, 124, 201, 0.16)', borderTint: 'rgba(182, 124, 201, 0.35)', kind: 'expense' },
-  { id: 'utilities', name: 'Utilities', icon: 'ti-wifi', monthlyBudget: null, accent: '#8FA8C9', tint: 'rgba(143, 168, 201, 0.16)', borderTint: 'rgba(143, 168, 201, 0.35)', kind: 'expense' },
-  { id: 'car-loan', name: 'Car loan', icon: 'ti-car', monthlyBudget: null, accent: '#D6935F', tint: 'rgba(214, 147, 95, 0.16)', borderTint: 'rgba(214, 147, 95, 0.35)', kind: 'expense' },
-  { id: 'savings', name: 'Savings', icon: 'ti-pig-money', monthlyBudget: null, accent: '#6FA8BF', tint: 'rgba(111, 168, 191, 0.16)', borderTint: 'rgba(111, 168, 191, 0.35)', kind: 'expense' },
-  { id: 'food', name: 'Food', icon: 'ti-tools-kitchen-2', monthlyBudget: null, accent: '#D6A57C', tint: 'rgba(214, 165, 124, 0.16)', borderTint: 'rgba(214, 165, 124, 0.35)', kind: 'expense' },
-  { id: 'purchases', name: 'Purchases', icon: 'ti-shopping-bag', monthlyBudget: null, accent: '#9F8FD6', tint: 'rgba(159, 143, 214, 0.16)', borderTint: 'rgba(159, 143, 214, 0.35)', kind: 'expense' },
-  { id: 'gifts', name: 'Gifts', icon: 'ti-gift', monthlyBudget: null, accent: '#D67CC0', tint: 'rgba(214, 124, 192, 0.16)', borderTint: 'rgba(214, 124, 192, 0.35)', kind: 'expense' },
-  { id: 'holidays', name: 'Holidays', icon: 'ti-plane', monthlyBudget: null, accent: '#7CC9B0', tint: 'rgba(124, 201, 176, 0.16)', borderTint: 'rgba(124, 201, 176, 0.35)', kind: 'expense' },
-  { id: 'health', name: 'Health', icon: 'ti-heart', monthlyBudget: null, accent: '#D67C7C', tint: 'rgba(214, 124, 124, 0.16)', borderTint: 'rgba(214, 124, 124, 0.35)', kind: 'expense' },
-  { id: 'other', name: 'Other / misc', icon: 'ti-receipt', monthlyBudget: null, accent: '#9A9EA6', tint: 'rgba(154, 158, 166, 0.16)', borderTint: 'rgba(154, 158, 166, 0.35)', kind: 'expense' },
-  { id: 'wages', name: 'Wages', icon: 'ti-briefcase', monthlyBudget: null, accent: '#8FDBB5', tint: 'rgba(143, 219, 181, 0.16)', borderTint: 'rgba(143, 219, 181, 0.35)', kind: 'income' },
-  { id: 'overtime', name: 'Overtime', icon: 'ti-clock', monthlyBudget: null, accent: '#F0D190', tint: 'rgba(240, 209, 144, 0.16)', borderTint: 'rgba(240, 209, 144, 0.35)', kind: 'income' },
-  { id: 'other-income', name: 'Other income', icon: 'ti-cash', monthlyBudget: null, accent: '#8FA8C9', tint: 'rgba(143, 168, 201, 0.16)', borderTint: 'rgba(143, 168, 201, 0.35)', kind: 'income' }
+  { id: 'rent', name: 'Rent', icon: 'ti-home', monthlyBudget: null, accent: '#6FBFA0', tint: 'rgba(111, 191, 160, 0.16)', borderTint: 'rgba(111, 191, 160, 0.35)', kind: 'expense', archived: false },
+  { id: 'fuel-insurance', name: 'Fuel & insurance', icon: 'ti-gas-station', monthlyBudget: null, accent: '#7C93D6', tint: 'rgba(124, 147, 214, 0.16)', borderTint: 'rgba(124, 147, 214, 0.35)', kind: 'expense', archived: false },
+  { id: 'streaming', name: 'Streaming', icon: 'ti-device-tv', monthlyBudget: null, accent: '#B67CC9', tint: 'rgba(182, 124, 201, 0.16)', borderTint: 'rgba(182, 124, 201, 0.35)', kind: 'expense', archived: false },
+  { id: 'utilities', name: 'Utilities', icon: 'ti-wifi', monthlyBudget: null, accent: '#8FA8C9', tint: 'rgba(143, 168, 201, 0.16)', borderTint: 'rgba(143, 168, 201, 0.35)', kind: 'expense', archived: false },
+  { id: 'car-loan', name: 'Car loan', icon: 'ti-car', monthlyBudget: null, accent: '#D6935F', tint: 'rgba(214, 147, 95, 0.16)', borderTint: 'rgba(214, 147, 95, 0.35)', kind: 'expense', archived: false },
+  { id: 'savings', name: 'Savings', icon: 'ti-pig-money', monthlyBudget: null, accent: '#6FA8BF', tint: 'rgba(111, 168, 191, 0.16)', borderTint: 'rgba(111, 168, 191, 0.35)', kind: 'expense', archived: false },
+  { id: 'food', name: 'Food', icon: 'ti-tools-kitchen-2', monthlyBudget: null, accent: '#D6A57C', tint: 'rgba(214, 165, 124, 0.16)', borderTint: 'rgba(214, 165, 124, 0.35)', kind: 'expense', archived: false },
+  { id: 'purchases', name: 'Purchases', icon: 'ti-shopping-bag', monthlyBudget: null, accent: '#9F8FD6', tint: 'rgba(159, 143, 214, 0.16)', borderTint: 'rgba(159, 143, 214, 0.35)', kind: 'expense', archived: false },
+  { id: 'gifts', name: 'Gifts', icon: 'ti-gift', monthlyBudget: null, accent: '#D67CC0', tint: 'rgba(214, 124, 192, 0.16)', borderTint: 'rgba(214, 124, 192, 0.35)', kind: 'expense', archived: false },
+  { id: 'holidays', name: 'Holidays', icon: 'ti-plane', monthlyBudget: null, accent: '#7CC9B0', tint: 'rgba(124, 201, 176, 0.16)', borderTint: 'rgba(124, 201, 176, 0.35)', kind: 'expense', archived: false },
+  { id: 'health', name: 'Health', icon: 'ti-heart', monthlyBudget: null, accent: '#D67C7C', tint: 'rgba(214, 124, 124, 0.16)', borderTint: 'rgba(214, 124, 124, 0.35)', kind: 'expense', archived: false },
+  { id: 'other', name: 'Other / misc', icon: 'ti-receipt', monthlyBudget: null, accent: '#9A9EA6', tint: 'rgba(154, 158, 166, 0.16)', borderTint: 'rgba(154, 158, 166, 0.35)', kind: 'expense', archived: false },
+  { id: 'wages', name: 'Wages', icon: 'ti-briefcase', monthlyBudget: null, accent: '#8FDBB5', tint: 'rgba(143, 219, 181, 0.16)', borderTint: 'rgba(143, 219, 181, 0.35)', kind: 'income', archived: false },
+  { id: 'overtime', name: 'Overtime', icon: 'ti-clock', monthlyBudget: null, accent: '#F0D190', tint: 'rgba(240, 209, 144, 0.16)', borderTint: 'rgba(240, 209, 144, 0.35)', kind: 'income', archived: false },
+  { id: 'other-income', name: 'Other income', icon: 'ti-cash', monthlyBudget: null, accent: '#8FA8C9', tint: 'rgba(143, 168, 201, 0.16)', borderTint: 'rgba(143, 168, 201, 0.35)', kind: 'income', archived: false }
 ]
 
 const iconChoices = [
@@ -247,7 +362,12 @@ export async function setPayDay(day) {
 // it's skipped automatically so nobody who's already using the app
 // gets interrupted by a first-run wizard.
 export async function isFirstRun() {
-  const anyExisting = Object.values(KEYS).some((k) => localStorage.getItem(k) !== null)
+  // The schema-version flag gets set by the money migration on every
+  // load, including a genuinely fresh install with nothing to convert,
+  // so it doesn't count as evidence of prior real use.
+  const anyExisting = Object.values(KEYS)
+    .filter((k) => k !== KEYS.schemaVersion)
+    .some((k) => localStorage.getItem(k) !== null)
   if (anyExisting) return false
   return true
 }
@@ -264,12 +384,22 @@ export async function dismissA2HS() {
   save(KEYS.a2hsDismissed, true)
 }
 
-export async function getCategories() {
+// --- Categories -------------------------------------------------------
+
+function loadCategoriesRaw() {
   return load(KEYS.categories, defaultCategories)
 }
 
+function toDisplayCategory(c) {
+  return { ...c, monthlyBudget: c.monthlyBudget == null ? null : fromCents(c.monthlyBudget) }
+}
+
+export async function getCategories() {
+  return loadCategoriesRaw().map(toDisplayCategory)
+}
+
 export async function addCategory({ name, icon, kind }) {
-  const categories = load(KEYS.categories, defaultCategories)
+  const categories = loadCategoriesRaw()
   const palette = accentPalette[categories.length % accentPalette.length]
   const record = {
     id: id(),
@@ -277,69 +407,122 @@ export async function addCategory({ name, icon, kind }) {
     icon: icon || 'ti-tag',
     monthlyBudget: null,
     kind: kind || 'expense',
+    archived: false,
     ...palette
   }
   categories.push(record)
   save(KEYS.categories, categories)
-  return record
+  return toDisplayCategory(record)
 }
 
 export async function updateCategory(categoryId, updates) {
-  const categories = load(KEYS.categories, defaultCategories)
+  const categories = loadCategoriesRaw()
   const cat = categories.find((c) => c.id === categoryId)
   if (!cat) return null
-  Object.assign(cat, updates)
+  const finalUpdates = { ...updates }
+  if ('monthlyBudget' in finalUpdates) {
+    finalUpdates.monthlyBudget = finalUpdates.monthlyBudget == null ? null : toCents(finalUpdates.monthlyBudget)
+  }
+  Object.assign(cat, finalUpdates)
   save(KEYS.categories, categories)
-  return cat
+  return toDisplayCategory(cat)
 }
 
+// Archives a category instead of deleting it outright: it disappears
+// from pickers for new transactions, but keeps its name/icon/color so
+// existing transactions that reference it still display correctly, and
+// it can be brought back with restoreCategory.
 export async function deleteCategory(categoryId) {
-  const categories = load(KEYS.categories, defaultCategories)
-  save(
-    KEYS.categories,
-    categories.filter((c) => c.id !== categoryId)
-  )
+  const categories = loadCategoriesRaw()
+  const cat = categories.find((c) => c.id === categoryId)
+  if (!cat) return
+  cat.archived = true
+  save(KEYS.categories, categories)
+}
+
+export async function restoreCategory(categoryId) {
+  const categories = loadCategoriesRaw()
+  const cat = categories.find((c) => c.id === categoryId)
+  if (!cat) return null
+  cat.archived = false
+  save(KEYS.categories, categories)
+  return toDisplayCategory(cat)
+}
+
+// --- Transactions -------------------------------------------------------
+
+function loadTransactionsRaw() {
+  return load(KEYS.transactions, [])
+}
+
+function toDisplayTransaction(t) {
+  return { ...t, amount: fromCents(t.amount) }
 }
 
 export async function getTransactions() {
-  const list = load(KEYS.transactions, [])
-  return list.sort((a, b) => new Date(b.date) - new Date(a.date))
+  const list = loadTransactionsRaw()
+  return list.map(toDisplayTransaction).sort((a, b) => new Date(b.date) - new Date(a.date))
 }
 
 export async function addTransaction(tx) {
-  const list = load(KEYS.transactions, [])
-  const record = { id: id(), ...tx }
+  const list = loadTransactionsRaw()
+  const record = { id: id(), ...tx, amount: toCents(tx.amount) }
   list.push(record)
   save(KEYS.transactions, list)
-  return record
+  return toDisplayTransaction(record)
 }
 
 // Bulk import: adds a batch of transactions on top of what's already
 // there, rather than replacing anything, so a bank statement or
 // screenshot batch can be merged in safely.
 export async function importTransactions(list) {
-  const existing = load(KEYS.transactions, [])
-  const added = list.map((t) => ({ id: id(), ...t }))
+  const existing = loadTransactionsRaw()
+  const added = list.map((t) => ({ id: id(), ...t, amount: toCents(t.amount) }))
   save(KEYS.transactions, [...existing, ...added])
   return added.length
 }
 
+// A normalized fingerprint (date + amount + note, case/space-insensitive)
+// used to flag likely duplicates before a bulk import actually commits.
+function transactionFingerprint(t) {
+  const amount = typeof t.amount === 'number' ? t.amount.toFixed(2) : parseFloat(t.amount || 0).toFixed(2)
+  const note = (t.note || '').trim().toLowerCase().replace(/\s+/g, ' ')
+  return `${t.date}|${amount}|${note}`
+}
+
+// Checks a candidate batch of transactions (decimal amounts, as they'd
+// come from an import file) against what's already stored, and marks
+// each one as a likely duplicate or not. Never removes or blocks
+// anything itself — just reports, so the person can choose to skip or
+// deliberately keep legitimate duplicates (e.g. two identical coffees).
+export async function findImportDuplicates(list) {
+  const existing = await getTransactions()
+  const existingFingerprints = new Set(existing.map(transactionFingerprint))
+  return list.map((t) => ({ ...t, isDuplicate: existingFingerprints.has(transactionFingerprint(t)) }))
+}
+
 export async function updateTransaction(txId, updates) {
-  const list = load(KEYS.transactions, [])
+  const list = loadTransactionsRaw()
   const tx = list.find((t) => t.id === txId)
   if (!tx) return null
-  Object.assign(tx, updates)
+  const finalUpdates = { ...updates }
+  if ('amount' in finalUpdates && finalUpdates.amount != null) {
+    finalUpdates.amount = toCents(finalUpdates.amount)
+  }
+  Object.assign(tx, finalUpdates)
   save(KEYS.transactions, list)
-  return tx
+  return toDisplayTransaction(tx)
 }
 
 export async function deleteTransaction(txId) {
-  const list = load(KEYS.transactions, [])
+  const list = loadTransactionsRaw()
   save(
     KEYS.transactions,
     list.filter((t) => t.id !== txId)
   )
 }
+
+// --- Bills -------------------------------------------------------
 
 // Bills are recurring fixed expenses: a bill has one due day of the
 // month, and a separate paid/unpaid status per calendar month, so
@@ -362,7 +545,7 @@ function migrateBill(bill) {
   }
 }
 
-export async function getBills() {
+function loadBillsRaw() {
   const raw = load(KEYS.bills, [])
   const migrated = raw.map(migrateBill)
   const changed = JSON.stringify(raw) !== JSON.stringify(migrated)
@@ -370,23 +553,31 @@ export async function getBills() {
   return migrated
 }
 
+function toDisplayBill(b) {
+  return { ...b, amount: fromCents(b.amount) }
+}
+
+export async function getBills() {
+  return loadBillsRaw().map(toDisplayBill)
+}
+
 export async function addBill({ name, amount, categoryId, dueDay }) {
-  const list = load(KEYS.bills, [])
+  const list = loadBillsRaw()
   const record = {
     id: id(),
     name,
-    amount,
+    amount: toCents(amount),
     categoryId,
     dueDay: Math.min(31, Math.max(1, parseInt(dueDay, 10) || 1)),
     payments: {}
   }
   list.push(record)
   save(KEYS.bills, list)
-  return record
+  return toDisplayBill(record)
 }
 
 export async function deleteBill(billId) {
-  const list = load(KEYS.bills, [])
+  const list = loadBillsRaw()
   save(
     KEYS.bills,
     list.filter((b) => b.id !== billId)
@@ -394,7 +585,7 @@ export async function deleteBill(billId) {
 }
 
 export async function markBillPaid(billId, monthPrefix) {
-  const bills = (await getBills())
+  const bills = loadBillsRaw()
   const bill = bills.find((b) => b.id === billId)
   if (!bill) return null
 
@@ -403,7 +594,7 @@ export async function markBillPaid(billId, monthPrefix) {
   const paidDate = isCurrentPeriod ? todayLocal() : billDateWithinPeriod(monthPrefix, payDay, bill.dueDay)
 
   const record = await addTransaction({
-    amount: bill.amount,
+    amount: fromCents(bill.amount),
     categoryId: bill.categoryId,
     date: paidDate,
     note: bill.name,
@@ -414,11 +605,11 @@ export async function markBillPaid(billId, monthPrefix) {
   bill.payments[monthPrefix] = { paidDate, transactionId: record.id }
   save(KEYS.bills, bills)
 
-  return bill
+  return toDisplayBill(bill)
 }
 
 export async function markBillUnpaid(billId, monthPrefix) {
-  const bills = await getBills()
+  const bills = loadBillsRaw()
   const bill = bills.find((b) => b.id === billId)
   if (!bill) return null
   const payment = bill.payments[monthPrefix]
@@ -427,45 +618,72 @@ export async function markBillUnpaid(billId, monthPrefix) {
   }
   delete bill.payments[monthPrefix]
   save(KEYS.bills, bills)
-  return bill
+  return toDisplayBill(bill)
 }
+
+// --- Summaries -------------------------------------------------------
+// All internal arithmetic here runs in integer cents; only the final
+// numbers handed back to the UI are converted to decimal, so summing
+// dozens of transactions can't accumulate float rounding drift.
 
 export async function getMonthSummary(monthPrefix, payDayOverride) {
   const payDay = payDayOverride ?? (await getPayDay())
   const periodKey = monthPrefix || currentPeriodKey(payDay)
-  const [transactions, categories] = [await getTransactions(), await getCategories()]
+  const transactions = loadTransactionsRaw()
+  const categories = loadCategoriesRaw()
   const inMonth = transactions.filter((t) => inPeriod(t.date, periodKey, payDay))
   const prevMonthPrefix = shiftMonthPrefix(periodKey, -1)
   const inPrevMonth = transactions.filter((t) => inPeriod(t.date, prevMonthPrefix, payDay))
 
-  const spent = inMonth.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
-  const income = inMonth.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
+  const spentCents = inMonth.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
+  const incomeCents = inMonth.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
 
-  const catSpentIn = (list, categoryId) =>
+  const catSpentInCents = (list, categoryId) =>
     list.filter((t) => t.type === 'expense' && t.categoryId === categoryId).reduce((sum, t) => sum + t.amount, 0)
 
   // Rollover: a category can carry an underspent amount from last month
   // into this month's effective budget, one month back only.
-  const effectiveBudget = (c) => {
+  const effectiveBudgetCents = (c) => {
     if (c.monthlyBudget == null) return null
     if (!c.rollover) return c.monthlyBudget
-    const prevSpent = catSpentIn(inPrevMonth, c.id)
-    const leftover = Math.max(0, c.monthlyBudget - prevSpent)
+    const prevSpentCents = catSpentInCents(inPrevMonth, c.id)
+    const leftover = Math.max(0, c.monthlyBudget - prevSpentCents)
     return c.monthlyBudget + leftover
   }
 
   const budgeted = categories.filter((c) => c.kind !== 'income' && c.monthlyBudget != null)
-  const budget = budgeted.length ? budgeted.reduce((sum, c) => sum + effectiveBudget(c), 0) : income
+  const budgetCents = budgeted.length
+    ? budgeted.reduce((sum, c) => sum + effectiveBudgetCents(c), 0)
+    : incomeCents
 
   const byCategory = categories
     .filter((c) => c.kind !== 'income')
     .map((c) => {
-      const catSpent = catSpentIn(inMonth, c.id)
-      const prevSpent = catSpentIn(inPrevMonth, c.id)
-      return { ...c, spent: catSpent, prevSpent, effectiveBudget: effectiveBudget(c) }
+      const catSpentCents = catSpentInCents(inMonth, c.id)
+      const prevSpentCents = catSpentInCents(inPrevMonth, c.id)
+      const effBudgetCents = effectiveBudgetCents(c)
+      return {
+        ...c,
+        monthlyBudget: c.monthlyBudget == null ? null : fromCents(c.monthlyBudget),
+        spent: fromCents(catSpentCents),
+        prevSpent: fromCents(prevSpentCents),
+        effectiveBudget: effBudgetCents == null ? null : fromCents(effBudgetCents),
+        _spentCents: catSpentCents
+      }
     })
+    // Archived categories drop out of the list once they have no spend
+    // left in this period, so they don't clutter the dashboard forever —
+    // but stay visible for any period where they still have real history.
+    .filter((c) => !c.archived || c._spentCents > 0)
+    .map(({ _spentCents, ...rest }) => rest)
 
-  return { spent, income, budget, left: income - spent, byCategory }
+  return {
+    spent: fromCents(spentCents),
+    income: fromCents(incomeCents),
+    budget: fromCents(budgetCents),
+    left: fromCents(incomeCents - spentCents),
+    byCategory
+  }
 }
 
 // Total expense spend per month for the last `count` months (including
@@ -473,30 +691,39 @@ export async function getMonthSummary(monthPrefix, payDayOverride) {
 export async function getRecentMonthTotals(monthPrefix, count = 3, payDayOverride) {
   const payDay = payDayOverride ?? (await getPayDay())
   const periodKey = monthPrefix || currentPeriodKey(payDay)
-  const transactions = await getTransactions()
+  const transactions = loadTransactionsRaw()
   const months = []
   for (let i = count - 1; i >= 0; i--) {
     months.push(shiftMonthPrefix(periodKey, -i))
   }
   return months.map((m) => {
     const inThisPeriod = transactions.filter((t) => inPeriod(t.date, m, payDay))
-    return {
-      month: m,
-      total: inThisPeriod.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0),
-      income: inThisPeriod.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
-    }
+    const totalCents = inThisPeriod.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
+    const incomeCents = inThisPeriod.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
+    return { month: m, total: fromCents(totalCents), income: fromCents(incomeCents) }
   })
 }
 
-// Balances: named accounts (debts or savings pots) with a history of
-// dated entries, so a running total can be tracked over time, the
-// same way the spreadsheet tracks car loan and credit union balances.
-export async function getBalances() {
+// --- Balances -------------------------------------------------------
+// Named accounts (debts, savings pots, or money owed to you) with a
+// history of dated entries, so a running total can be tracked over
+// time, the same way the spreadsheet tracks car loan and credit union
+// balances.
+
+function loadBalancesRaw() {
   return load(KEYS.balances, [])
 }
 
+function toDisplayBalanceAccount(a) {
+  return { ...a, entries: a.entries.map((e) => ({ ...e, value: fromCents(e.value) })) }
+}
+
+export async function getBalances() {
+  return loadBalancesRaw().map(toDisplayBalanceAccount)
+}
+
 export async function addBalanceAccount({ name, type, icon, openingValue, date }) {
-  const accounts = load(KEYS.balances, [])
+  const accounts = loadBalancesRaw()
   const palette = accentPalette[accounts.length % accentPalette.length]
   const defaultIcon = type === 'debt' ? 'ti-credit-card' : type === 'owed' ? 'ti-user' : 'ti-pig-money'
   const record = {
@@ -505,24 +732,24 @@ export async function addBalanceAccount({ name, type, icon, openingValue, date }
     type, // 'debt' | 'savings' | 'owed'
     icon: icon || defaultIcon,
     ...palette,
-    entries: [{ date: date || todayLocal(), value: openingValue }]
+    entries: [{ date: date || todayLocal(), value: toCents(openingValue) }]
   }
   accounts.push(record)
   save(KEYS.balances, accounts)
-  return record
+  return toDisplayBalanceAccount(record)
 }
 
 export async function addBalanceEntry(accountId, { date, value }) {
-  const accounts = load(KEYS.balances, [])
+  const accounts = loadBalancesRaw()
   const account = accounts.find((a) => a.id === accountId)
   if (!account) return null
-  account.entries.push({ date, value })
+  account.entries.push({ date, value: toCents(value) })
   save(KEYS.balances, accounts)
-  return account
+  return toDisplayBalanceAccount(account)
 }
 
 export async function deleteBalanceAccount(accountId) {
-  const accounts = load(KEYS.balances, [])
+  const accounts = loadBalancesRaw()
   save(
     KEYS.balances,
     accounts.filter((a) => a.id !== accountId)
@@ -547,11 +774,20 @@ export function previousEntry(account) {
   return sortedEntries(account)[1]
 }
 
-// Backup and restore. Exports every stored key as one JSON file the
-// person can save, and restores it wholesale on another device or
-// after clearing browser data.
+// --- Backup and restore -------------------------------------------------------
+// Exports every stored key as one JSON file the person can save, and
+// restores it wholesale on another device or after clearing browser
+// data. Every export is tagged with a schema version, export date, and
+// app version, so a restore of an older backup (still in decimal money
+// format, from before this version) is detected and converted rather
+// than silently corrupting figures.
+
 export async function exportBackup() {
-  const data = {}
+  const data = {
+    schemaVersion: SCHEMA_VERSION,
+    appVersion: APP_VERSION,
+    exportedAt: new Date().toISOString()
+  }
   for (const key of Object.values(KEYS)) {
     const raw = localStorage.getItem(key)
     if (raw) data[key] = JSON.parse(raw)
@@ -559,10 +795,78 @@ export async function exportBackup() {
   return data
 }
 
+// A human-readable summary of what a backup file contains, for showing
+// a preview before actually restoring anything.
+export function summarizeBackup(data) {
+  const issues = []
+  if (!data || typeof data !== 'object') {
+    return { issues: ['This file does not look like a Gild backup.'], valid: false }
+  }
+  const version = data.schemaVersion || 1
+  if (!data.schemaVersion) {
+    issues.push('No version tag found — this looks like an older backup and will be converted automatically.')
+  }
+  if (version > SCHEMA_VERSION) {
+    issues.push('This backup was made with a newer version of the app than this one. Some data may not restore correctly.')
+  }
+  const hasAnyData = Object.values(KEYS).some((k) => data[k] !== undefined)
+  if (!hasAnyData) {
+    issues.push('This file has no recognizable Gild data in it.')
+  }
+  return {
+    valid: hasAnyData,
+    version,
+    exportedAt: data.exportedAt || null,
+    appVersion: data.appVersion || null,
+    transactions: (data[KEYS.transactions] || []).length,
+    categories: (data[KEYS.categories] || []).length,
+    bills: (data[KEYS.bills] || []).length,
+    balances: (data[KEYS.balances] || []).length,
+    currency: data[KEYS.currency]?.code || null,
+    language: data[KEYS.language] || null,
+    issues
+  }
+}
+
 export async function importBackup(data) {
-  for (const key of Object.values(KEYS)) {
-    if (data[key] !== undefined) {
-      save(key, data[key])
+  const importedVersion = data.schemaVersion || 1
+  const payload = { ...data }
+  delete payload.schemaVersion
+  delete payload.appVersion
+  delete payload.exportedAt
+
+  if (importedVersion < SCHEMA_VERSION) {
+    // The backup predates the cents migration — its money fields are
+    // still plain decimals, so convert them the same way a first
+    // load of old data would.
+    if (payload[KEYS.transactions]) {
+      payload[KEYS.transactions].forEach((t) => {
+        if (typeof t.amount === 'number') t.amount = toCents(t.amount)
+      })
+    }
+    if (payload[KEYS.categories]) {
+      payload[KEYS.categories].forEach((c) => {
+        if (typeof c.monthlyBudget === 'number') c.monthlyBudget = toCents(c.monthlyBudget)
+      })
+    }
+    if (payload[KEYS.bills]) {
+      payload[KEYS.bills].forEach((b) => {
+        if (typeof b.amount === 'number') b.amount = toCents(b.amount)
+      })
+    }
+    if (payload[KEYS.balances]) {
+      payload[KEYS.balances].forEach((a) => {
+        (a.entries || []).forEach((e) => {
+          if (typeof e.value === 'number') e.value = toCents(e.value)
+        })
+      })
     }
   }
+
+  for (const key of Object.values(KEYS)) {
+    if (payload[key] !== undefined) {
+      save(key, payload[key])
+    }
+  }
+  localStorage.setItem(KEYS.schemaVersion, String(SCHEMA_VERSION))
 }

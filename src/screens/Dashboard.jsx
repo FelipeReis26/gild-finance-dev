@@ -165,6 +165,70 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
         </div>
       )}
 
+      {summary.byCategory.some((c) => c.spent > 0) && (
+        <div className="card">
+          <p className="section-title" style={{ marginBottom: 16 }}>
+            {t('categoryBreakdown')}
+          </p>
+          {(() => {
+            const withSpend = summary.byCategory
+              .filter((c) => c.spent > 0)
+              .sort((a, b) => b.spent - a.spent)
+            const total = withSpend.reduce((sum, c) => sum + c.spent, 0)
+            const r = 80
+            const circumference = 2 * Math.PI * r
+            let cumulative = 0
+            return (
+              <>
+                <div className="gauge-wrap">
+                  <svg width="200" height="200" viewBox="0 0 200 200">
+                    {withSpend.map((c) => {
+                      const fraction = c.spent / total
+                      const arcLen = fraction * circumference
+                      const gap = withSpend.length > 1 ? Math.min(3, arcLen * 0.06) : 0
+                      const offset = -cumulative
+                      cumulative += arcLen
+                      return (
+                        <circle
+                          key={c.id}
+                          cx="100"
+                          cy="100"
+                          r={r}
+                          fill="none"
+                          stroke={c.accent}
+                          strokeWidth="26"
+                          strokeDasharray={`${Math.max(0, arcLen - gap)} ${circumference - arcLen + gap}`}
+                          strokeDashoffset={offset}
+                          transform="rotate(-90 100 100)"
+                        />
+                      )
+                    })}
+                    <text x="100" y="96" textAnchor="middle" fontSize="26" fontWeight="700" fill="var(--text-primary)">
+                      {s}
+                      {total.toFixed(0)}
+                    </text>
+                    <text x="100" y="118" textAnchor="middle" fontSize="12" fill="var(--text-secondary)">
+                      {withSpend.length} {withSpend.length === 1 ? t('categorySingular') : t('categoriesPlural')}
+                    </text>
+                  </svg>
+                </div>
+                <div className="stack" style={{ marginTop: 8 }}>
+                  {withSpend.map((c) => (
+                    <div key={c.id} className="row between" style={{ fontSize: 14 }}>
+                      <span className="row gap" style={{ gap: 8 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: c.accent, display: 'inline-block' }} />
+                        {c.name}
+                      </span>
+                      <span className="muted">{Math.round((c.spent / total) * 100)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )
+          })()}
+        </div>
+      )}
+
       <p className="section-title">{t('categories')}</p>
 
       <div className="stack">

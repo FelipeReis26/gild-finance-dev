@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext.jsx'
 import { todayLocalDate } from '../db.js'
 
 export default function AddTransaction({ prefill, editingId, onDone }) {
-  const { categories, currency, addTransaction, editTransaction, removeTransaction, t } = useApp()
+  const { categories, currency, addTransaction, editTransaction, deleteTransactionWithUndo, t } = useApp()
   const [type, setType] = useState(prefill?.type || 'expense')
   const [amount, setAmount] = useState(prefill?.amount ?? '')
   const [categoryId, setCategoryId] = useState(prefill?.categoryId || '')
@@ -11,8 +11,10 @@ export default function AddTransaction({ prefill, editingId, onDone }) {
   const [note, setNote] = useState(prefill?.note || '')
   const [error, setError] = useState('')
 
-  const relevantCategories = categories.filter((c) =>
-    type === 'income' ? c.kind === 'income' : c.kind !== 'income'
+  const relevantCategories = categories.filter(
+    (c) =>
+      (type === 'income' ? c.kind === 'income' : c.kind !== 'income') &&
+      (!c.archived || c.id === categoryId)
   )
 
   useEffect(() => {
@@ -41,7 +43,7 @@ export default function AddTransaction({ prefill, editingId, onDone }) {
   }
 
   async function handleDelete() {
-    await removeTransaction(editingId)
+    await deleteTransactionWithUndo(editingId)
     onDone?.()
   }
 

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
 import { inPeriod } from '../db.js'
+import { formatMoney, localeFor } from '../i18n.js'
 
 function groupByDay(transactions) {
   const groups = {}
@@ -12,11 +13,14 @@ function groupByDay(transactions) {
 }
 
 export default function Transactions({ onEditTransaction, initialCategory, initialScope }) {
-  const { transactions, categories, currency, deleteTransactionWithUndo, selectedMonth, changeMonth, payDay, periodLabel, t } = useApp()
+  const { transactions, categories, currency, language, deleteTransactionWithUndo, selectedMonth, changeMonth, payDay, periodLabel, t } =
+    useApp()
   const [filter, setFilter] = useState(initialCategory || 'all')
   const [scope, setScope] = useState(initialScope || 'month')
   const [search, setSearch] = useState('')
-  const s = currency.symbol
+  const money = (v) => formatMoney(language, currency, v, { decimals: 2 })
+  const dayLabel = (iso) =>
+    new Date(iso + 'T00:00:00').toLocaleDateString(localeFor(language), { weekday: 'short', day: 'numeric', month: 'short' })
 
   async function handleDelete(e, txId) {
     e.stopPropagation()
@@ -90,7 +94,7 @@ export default function Transactions({ onEditTransaction, initialCategory, initi
 
       {Object.entries(groups).map(([date, items]) => (
         <div key={date}>
-          <p className="day-label">{date}</p>
+          <p className="day-label">{dayLabel(date)}</p>
           <div className="stack">
             {items.map((tx) => {
               const cat = categoryById[tx.categoryId]
@@ -110,10 +114,12 @@ export default function Transactions({ onEditTransaction, initialCategory, initi
                       <p className="row-sub">{tx.note || (tx.source === 'bill' ? t('billPayment') : '')}</p>
                     </div>
                   </button>
-                  <p className="row-amount" style={{ whiteSpace: 'nowrap' }}>
-                    {tx.type === 'income' ? '+' : '-'}
-                    {s}
-                    {tx.amount.toFixed(2)}
+                  <p
+                    className="row-amount"
+                    style={{ whiteSpace: 'nowrap', color: tx.type === 'income' ? 'var(--credit)' : 'var(--ink)' }}
+                  >
+                    {tx.type === 'income' ? '+' : '−'}
+                    {money(tx.amount)}
                   </p>
                   <button type="button" className="mini-button" onClick={(e) => handleDelete(e, tx.id)} aria-label="Delete transaction">
                     <i className="ti ti-trash" aria-hidden="true"></i>

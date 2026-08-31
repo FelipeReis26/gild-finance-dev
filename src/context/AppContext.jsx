@@ -276,7 +276,7 @@ export function AppProvider({ children }) {
     [refresh]
   )
 
-  const periodLabel = selectedMonth ? db.periodLabel(selectedMonth, payDay) : ''
+  const periodLabel = selectedMonth ? db.periodLabel(selectedMonth, payDay, language) : ''
 
   return (
     <AppContext.Provider

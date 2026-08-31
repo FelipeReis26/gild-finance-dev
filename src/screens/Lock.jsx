@@ -25,11 +25,6 @@ export default function Lock({ onUnlock }) {
 
   return (
     <div className="app-shell">
-      <div className="bg-blobs" aria-hidden="true">
-        <span className="blob blob-gold" />
-        <span className="blob blob-blue" />
-        <span className="blob blob-green" />
-      </div>
       <main className="app-main" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '100vh' }}>
         <div className="card">
           <p className="section-title" style={{ textAlign: 'center', marginBottom: 16 }}>

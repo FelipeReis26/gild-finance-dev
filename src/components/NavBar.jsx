@@ -1,11 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
 
+// App chrome: a fixed top bar (hamburger + wordmark) and a slide-in
+// drawer holding all six destinations. The drawer is the collapsable
+// menu this app always wanted: out of the way until asked for, then
+// every screen one tap away.
 export default function NavBar({ active, onChange }) {
   const { t } = useApp()
   const [open, setOpen] = useState(false)
+  const burgerRef = useRef(null)
+  const drawerRef = useRef(null)
 
-  const TABS = [
+  const items = [
     { key: 'dashboard', label: t('navDashboard'), icon: 'ti-home' },
     { key: 'transactions', label: t('navActivity'), icon: 'ti-list' },
     { key: 'bills', label: t('navBills'), icon: 'ti-file-invoice' },
@@ -14,6 +20,21 @@ export default function NavBar({ active, onChange }) {
     { key: 'settings', label: t('navSettings'), icon: 'ti-settings' }
   ]
 
+  // While open: focus moves into the drawer, Escape closes and returns
+  // focus to the hamburger, so the menu is fully keyboard-operable.
+  useEffect(() => {
+    if (!open) return
+    drawerRef.current?.querySelector('.drawer-item')?.focus()
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        setOpen(false)
+        burgerRef.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open])
+
   function select(key) {
     onChange(key)
     setOpen(false)
@@ -21,26 +42,42 @@ export default function NavBar({ active, onChange }) {
 
   return (
     <>
+      <header className="topbar">
+        <button
+          ref={burgerRef}
+          type="button"
+          className="burger"
+          aria-label={t('navigation')}
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <i className="ti ti-menu-2" aria-hidden="true"></i>
+        </button>
+        <span className="wordmark">Gild</span>
+      </header>
+
       {open && (
-        <div className="nav-menu-backdrop" onClick={() => setOpen(false)}>
-          <div className="nav-menu" onClick={(e) => e.stopPropagation()}>
-            {TABS.map((tab) => (
+        <>
+          <div className="drawer-scrim" onClick={() => setOpen(false)} />
+          <nav className="drawer" aria-label={t('navigation')} ref={drawerRef}>
+            <div className="drawer-head">
+              <span className="wordmark">Gild</span>
+            </div>
+            {items.map((item) => (
               <button
-                key={tab.key}
+                key={item.key}
                 type="button"
-                className={active === tab.key ? 'nav-menu-item nav-menu-item-active' : 'nav-menu-item'}
-                onClick={() => select(tab.key)}
+                className={active === item.key ? 'drawer-item drawer-item-active' : 'drawer-item'}
+                aria-current={active === item.key ? 'page' : undefined}
+                onClick={() => select(item.key)}
               >
-                <i className={`ti ${tab.icon}`} aria-hidden="true"></i>
-                <span>{tab.label}</span>
+                <i className={`ti ${item.icon}`} aria-hidden="true"></i>
+                <span>{item.label}</span>
               </button>
             ))}
-          </div>
-        </div>
+          </nav>
+        </>
       )}
-      <button type="button" className="nav-fab" onClick={() => setOpen((o) => !o)} aria-label="Menu">
-        <i className={`ti ${open ? 'ti-x' : 'ti-menu-2'}`} aria-hidden="true"></i>
-      </button>
     </>
   )
 }

@@ -163,11 +163,74 @@ const strings = {
   payDay: { en: 'Pay day', fr: 'Jour de paie', 'pt-BR': 'Dia do pagamento', it: 'Giorno di paga', es: 'Día de pago' },
   payDayField: { en: 'Day of month you get paid', fr: 'Jour du mois où vous êtes payé', 'pt-BR': 'Dia do mês em que você recebe', it: 'Giorno del mese in cui vieni pagato', es: 'Día del mes en que te pagan' },
   payDayNote: { en: "Your budget month runs from this day to the day before it next month, instead of the 1st to the end of the calendar month. Set this to 1 to use plain calendar months.", fr: "Votre mois budgétaire va de ce jour jusqu'à la veille de ce jour le mois suivant, au lieu du 1er à la fin du mois calendaire. Réglez sur 1 pour utiliser les mois calendaires normaux.", 'pt-BR': 'Seu mês de orçamento vai deste dia até o dia anterior no mês seguinte, em vez do dia 1 até o fim do mês do calendário. Defina como 1 para usar meses de calendário normais.', it: "Il tuo mese di budget va da questo giorno al giorno prima nel mese successivo, invece che dal 1° alla fine del mese di calendario. Imposta 1 per usare i normali mesi di calendario.", es: 'Tu mes de presupuesto va desde este día hasta el día anterior al mes siguiente, en lugar del día 1 al final del mes calendario. Pon 1 para usar meses de calendario normales.' },
-  payDayCurrent: { en: 'Current period', fr: 'Période actuelle', 'pt-BR': 'Período atual', it: 'Periodo attuale', es: 'Período actual' }
+  payDayCurrent: { en: 'Current period', fr: 'Période actuelle', 'pt-BR': 'Período atual', it: 'Periodo attuale', es: 'Período actual' },
+
+  // Dashboard burn-down hero + progressive disclosure (v2.1)
+  leftToSpend: { en: 'Left to spend', fr: 'Reste à dépenser', 'pt-BR': 'Disponível para gastar', it: 'Ancora da spendere', es: 'Disponible para gastar' },
+  overspent: { en: 'Overspent this period', fr: 'Dépassement ce mois', 'pt-BR': 'Gasto excedido no período', it: 'Speso in eccesso', es: 'Gasto excedido en el período' },
+  daysLeft: { en: 'days left', fr: 'jours restants', 'pt-BR': 'dias restantes', it: 'giorni rimasti', es: 'días restantes' },
+  dayLeft: { en: 'day left', fr: 'jour restant', 'pt-BR': 'dia restante', it: 'giorno rimasto', es: 'día restante' },
+  perDay: { en: 'day', fr: 'jour', 'pt-BR': 'dia', it: 'giorno', es: 'día' },
+  periodEnded: { en: 'Period ended', fr: 'Période terminée', 'pt-BR': 'Período encerrado', it: 'Periodo terminato', es: 'Período terminado' },
+  upcoming: { en: 'Upcoming', fr: 'À venir', 'pt-BR': 'Em breve', it: 'In arrivo', es: 'Próximamente' },
+  spentOfIncome: { en: 'spent of', fr: 'dépensé sur', 'pt-BR': 'gasto de', it: 'speso su', es: 'gastado de' },
+  insights: { en: 'Insights', fr: 'Analyses', 'pt-BR': 'Análises', it: 'Analisi', es: 'Análisis' },
+  showUnused: { en: 'Show unused', fr: 'Afficher inutilisées', 'pt-BR': 'Mostrar não usadas', it: 'Mostra inutilizzate', es: 'Mostrar sin usar' },
+  hideUnused: { en: 'Hide unused', fr: 'Masquer inutilisées', 'pt-BR': 'Ocultar não usadas', it: 'Nascondi inutilizzate', es: 'Ocultar sin usar' },
+  lastMonthWas: { en: 'last month', fr: 'le mois dernier', 'pt-BR': 'mês passado', it: 'mese scorso', es: 'el mes pasado' },
+  more: { en: 'More', fr: 'Plus', 'pt-BR': 'Mais', it: 'Altro', es: 'Más' },
+  navigation: { en: 'Navigation', fr: 'Navigation', 'pt-BR': 'Navegação', it: 'Navigazione', es: 'Navegación' }
 }
 
 export function t(lang, key) {
   const entry = strings[key]
   if (!entry) return key
   return entry[lang] || entry.en || key
+}
+
+// --- Locale-aware formatting -------------------------------------------
+// The app supports five languages and EUR/USD/GBP. Numbers, currency
+// symbol placement, and month names must follow the reader's locale, not
+// a hardcoded en-US one, so amounts read naturally for a family member in
+// any of the five languages.
+const LOCALE_BY_LANG = {
+  en: 'en-IE', // euro-first English formatting (€1,045) — the app's default currency
+  fr: 'fr-FR',
+  'pt-BR': 'pt-BR',
+  it: 'it-IT',
+  es: 'es-ES'
+}
+
+export function localeFor(lang) {
+  return LOCALE_BY_LANG[lang] || 'en-US'
+}
+
+// Format a decimal amount as localized currency. Defaults to whole units
+// (no cents) to stay glanceable, matching the app's existing display, but
+// now with correct thousands separators and per-locale symbol placement.
+export function formatMoney(lang, currency, amount, { decimals = 0 } = {}) {
+  const value = typeof amount === 'number' ? amount : 0
+  const code = currency?.code || 'EUR'
+  try {
+    return new Intl.NumberFormat(localeFor(lang), {
+      style: 'currency',
+      currency: code,
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+      currencyDisplay: 'narrowSymbol'
+    }).format(value)
+  } catch {
+    const sym = currency?.symbol || ''
+    return `${sym}${value.toFixed(decimals)}`
+  }
+}
+
+// Short month name in the reader's language (replaces a hardcoded en-US
+// call). `monthKey` is a 'YYYY-MM' string.
+export function formatMonthShort(lang, monthKey) {
+  try {
+    return new Date(monthKey + '-02T00:00:00').toLocaleDateString(localeFor(lang), { month: 'short' })
+  } catch {
+    return monthKey
+  }
 }

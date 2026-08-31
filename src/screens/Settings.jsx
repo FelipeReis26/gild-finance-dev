@@ -615,7 +615,7 @@ function AboutScreen({ onBack, t }) {
         {changelog.map((entry) => (
           <div key={entry.version} className="card">
             <div className="row between" style={{ marginBottom: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--gold-light)' }}>v{entry.version}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>v{entry.version}</span>
               <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entry.summary}</span>
             </div>
             <ul style={{ margin: 0, paddingLeft: 18 }}>

@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
 import { latestEntry, previousEntry, todayLocalDate } from '../db.js'
+import { formatMoney } from '../i18n.js'
 
 export default function Balances() {
-  const { balances, currency, addBalanceAccount, addBalanceEntry, removeBalanceAccount, t } = useApp()
-  const s = currency.symbol
+  const { balances, currency, language, addBalanceAccount, addBalanceEntry, removeBalanceAccount, t } = useApp()
+  const money = (v) => formatMoney(language, currency, v)
 
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState('')
@@ -56,25 +57,22 @@ export default function Balances() {
         <div className="stat-row" style={{ marginBottom: 0 }}>
           <div className="stat-col">
             <p className="stat-label">{t('debt')}</p>
-            <p className="stat-value" style={{ color: 'var(--danger)' }}>
-              {s}
-              {totalDebt.toFixed(0)}
+            <p className="stat-value" style={{ color: 'var(--debit)' }}>
+              {money(totalDebt)}
             </p>
           </div>
           <div className="stat-divider" />
           <div className="stat-col">
             <p className="stat-label">{t('savings')}</p>
-            <p className="stat-value" style={{ color: 'var(--success)' }}>
-              {s}
-              {totalSavings.toFixed(0)}
+            <p className="stat-value" style={{ color: 'var(--credit)' }}>
+              {money(totalSavings)}
             </p>
           </div>
           <div className="stat-divider" />
           <div className="stat-col">
             <p className="stat-label">{t('owedToYou')}</p>
-            <p className="stat-value" style={{ color: 'var(--gold)' }}>
-              {s}
-              {totalOwed.toFixed(0)}
+            <p className="stat-value" style={{ color: 'var(--ink)' }}>
+              {money(totalOwed)}
             </p>
           </div>
         </div>
@@ -96,15 +94,12 @@ export default function Balances() {
               <div className="cat-body">
                 <div className="cat-top">
                   <span className="cat-name">{a.name}</span>
-                  <span className="cat-figures">
-                    {s}
-                    {latest.value.toFixed(0)}
-                  </span>
+                  <span className="cat-figures">{money(latest.value)}</span>
                 </div>
                 {prev && (
-                  <p className="row-sub" style={{ color: improving ? 'var(--success)' : 'var(--danger)', margin: '0 0 8px' }}>
-                    {delta > 0 ? '+' : ''}
-                    {delta.toFixed(0)} {t('sinceLastUpdate')}
+                  <p className="row-sub" style={{ color: improving ? 'var(--credit)' : 'var(--danger-text)', margin: '0 0 8px' }}>
+                    {delta > 0 ? '+' : delta < 0 ? '−' : ''}
+                    {money(Math.abs(delta))} {t('sinceLastUpdate')}
                   </p>
                 )}
                 {updatingId === a.id ? (

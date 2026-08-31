@@ -82,7 +82,7 @@ function parseReceiptText(text) {
 
 export default function ScanImport({ onConfirmed }) {
   const { categories, addTransaction, t } = useApp()
-  const expenseCategories = categories.filter((c) => c.kind !== 'income')
+  const expenseCategories = categories.filter((c) => c.kind !== 'income' && !c.archived)
   const [file, setFile] = useState(null)
   const [scanning, setScanning] = useState(false)
   const [result, setResult] = useState(null)

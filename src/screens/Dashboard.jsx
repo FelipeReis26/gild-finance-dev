@@ -11,8 +11,10 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
   if (!summary) return <p className="muted">Loading</p>
 
   const s = currency.symbol
-  const pct = summary.budget ? Math.min(100, Math.round((summary.spent / summary.budget) * 100)) : 0
-  const dashOffset = CIRC * (1 - pct / 100)
+  const rawPct = summary.budget ? Math.round((summary.spent / summary.budget) * 100) : 0
+  const overBudget = rawPct > 100
+  const arcPct = Math.min(100, Math.max(0, rawPct))
+  const dashOffset = CIRC * (1 - arcPct / 100)
   const gaugeLabel = summary.byCategory.some((c) => c.monthlyBudget != null) ? t('ofBudgetUsed') : t('ofIncomeSpent')
 
   return (
@@ -47,14 +49,14 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
             <path
               d="M 20 110 A 90 90 0 0 1 200 110"
               fill="none"
-              stroke="var(--gold)"
+              stroke={overBudget ? 'var(--danger)' : 'var(--gold)'}
               strokeWidth="14"
               strokeLinecap="round"
               strokeDasharray={CIRC}
               strokeDashoffset={dashOffset}
             />
-            <text x="110" y="88" textAnchor="middle" fontSize="30" fontWeight="700" fill="var(--text-primary)">
-              {pct}%
+            <text x="110" y="88" textAnchor="middle" fontSize="30" fontWeight="700" fill={overBudget ? 'var(--danger)' : 'var(--text-primary)'}>
+              {rawPct}%
             </text>
             <text x="110" y="108" textAnchor="middle" fontSize="12" fill="var(--text-secondary)">
               {gaugeLabel}
@@ -160,6 +162,70 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
               )
             })}
           </div>
+        </div>
+      )}
+
+      {summary.byCategory.some((c) => c.spent > 0) && (
+        <div className="card">
+          <p className="section-title" style={{ marginBottom: 16 }}>
+            {t('categoryBreakdown')}
+          </p>
+          {(() => {
+            const withSpend = summary.byCategory
+              .filter((c) => c.spent > 0)
+              .sort((a, b) => b.spent - a.spent)
+            const total = withSpend.reduce((sum, c) => sum + c.spent, 0)
+            const r = 80
+            const circumference = 2 * Math.PI * r
+            let cumulative = 0
+            return (
+              <>
+                <div className="gauge-wrap">
+                  <svg width="200" height="200" viewBox="0 0 200 200">
+                    {withSpend.map((c) => {
+                      const fraction = c.spent / total
+                      const arcLen = fraction * circumference
+                      const gap = withSpend.length > 1 ? Math.min(3, arcLen * 0.06) : 0
+                      const offset = -cumulative
+                      cumulative += arcLen
+                      return (
+                        <circle
+                          key={c.id}
+                          cx="100"
+                          cy="100"
+                          r={r}
+                          fill="none"
+                          stroke={c.accent}
+                          strokeWidth="26"
+                          strokeDasharray={`${Math.max(0, arcLen - gap)} ${circumference - arcLen + gap}`}
+                          strokeDashoffset={offset}
+                          transform="rotate(-90 100 100)"
+                        />
+                      )
+                    })}
+                    <text x="100" y="96" textAnchor="middle" fontSize="26" fontWeight="700" fill="var(--text-primary)">
+                      {s}
+                      {total.toFixed(0)}
+                    </text>
+                    <text x="100" y="118" textAnchor="middle" fontSize="12" fill="var(--text-secondary)">
+                      {withSpend.length} {withSpend.length === 1 ? t('categorySingular') : t('categoriesPlural')}
+                    </text>
+                  </svg>
+                </div>
+                <div className="stack" style={{ marginTop: 8 }}>
+                  {withSpend.map((c) => (
+                    <div key={c.id} className="row between" style={{ fontSize: 14 }}>
+                      <span className="row gap" style={{ gap: 8 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: c.accent, display: 'inline-block' }} />
+                        {c.name}
+                      </span>
+                      <span className="muted">{Math.round((c.spent / total) * 100)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )
+          })()}
         </div>
       )}
 

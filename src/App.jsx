@@ -9,10 +9,19 @@ import AddBill from './screens/AddBill.jsx'
 import ScanImport from './screens/ScanImport.jsx'
 import Settings from './screens/Settings.jsx'
 import Balances from './screens/Balances.jsx'
+import UndoToast from './components/UndoToast.jsx'
 import Lock from './screens/Lock.jsx'
 import Onboarding from './screens/Onboarding.jsx'
+import AddToHomeScreenBanner from './screens/AddToHomeScreenBanner.jsx'
+import MobileGuard from './screens/MobileGuard.jsx'
 import { getPasscode, isFirstRun } from './db.js'
 import { useEdgeSwipeBack } from './useSwipe.js'
+
+function isMobileDevice() {
+  const uaMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+  const smallViewport = window.innerWidth <= 700
+  return uaMobile || smallViewport
+}
 
 export default function App() {
   const [tab, setTab] = useState('dashboard')
@@ -22,6 +31,8 @@ export default function App() {
   const [categoryDrillDown, setCategoryDrillDown] = useState(null)
   const [locked, setLocked] = useState(null) // null = checking, true/false after
   const [needsOnboarding, setNeedsOnboarding] = useState(null)
+  const [settingsInitialView, setSettingsInitialView] = useState(null)
+  const [bypassGuard, setBypassGuard] = useState(false)
 
   useEffect(() => {
     getPasscode().then((code) => setLocked(!!code))
@@ -46,6 +57,7 @@ export default function App() {
 
   function handleTabChange(nextTab) {
     setCategoryDrillDown(null)
+    setSettingsInitialView(null)
     setNavStack((s) => (s[s.length - 1] === nextTab ? s : [...s, nextTab]))
     setTab(nextTab)
   }
@@ -65,12 +77,31 @@ export default function App() {
 
   const edgeSwipe = useEdgeSwipeBack(goBack)
 
+  if (!bypassGuard && !isMobileDevice()) {
+    return <MobileGuard onContinue={() => setBypassGuard(true)} />
+  }
+
   if (locked === null || needsOnboarding === null) return null
   if (locked) return <Lock onUnlock={() => setLocked(false)} />
-  if (needsOnboarding) return <Onboarding onDone={(goToImport) => { setNeedsOnboarding(false); if (goToImport) setTab('settings') }} />
+  if (needsOnboarding)
+    return (
+      <>
+        <AddToHomeScreenBanner />
+        <Onboarding
+          onDone={(goToImport) => {
+            setNeedsOnboarding(false)
+            if (goToImport) {
+              setTab('settings')
+              setSettingsInitialView('data')
+            }
+          }}
+        />
+      </>
+    )
 
   return (
     <AppProvider>
+      <AddToHomeScreenBanner />
       <div className="app-shell" {...edgeSwipe}>
         <div className="bg-blobs" aria-hidden="true">
           <span className="blob blob-gold" />
@@ -97,7 +128,7 @@ export default function App() {
             <Bills onAddBill={() => setOverlay('addBill')} />
           )}
           {!overlay && tab === 'scan' && <ScanImport onConfirmed={() => setTab('dashboard')} />}
-          {!overlay && tab === 'settings' && <Settings />}
+          {!overlay && tab === 'settings' && <Settings initialView={settingsInitialView} />}
           {!overlay && tab === 'balances' && <Balances />}
         </main>
 
@@ -107,6 +138,7 @@ export default function App() {
             Cancel
           </button>
         )}
+        <UndoToast />
       </div>
     </AppProvider>
   )

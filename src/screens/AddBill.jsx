@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext.jsx'
 
 export default function AddBill({ onDone }) {
   const { categories, addBill, t } = useApp()
-  const expenseCategories = categories.filter((c) => c.kind !== 'income')
+  const expenseCategories = categories.filter((c) => c.kind !== 'income' && !c.archived)
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('')
   const [dueDay, setDueDay] = useState('1')

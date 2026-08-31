@@ -12,7 +12,7 @@ function groupByDay(transactions) {
 }
 
 export default function Transactions({ onEditTransaction, initialCategory, initialScope }) {
-  const { transactions, categories, currency, removeTransaction, selectedMonth, changeMonth, payDay, periodLabel, t } = useApp()
+  const { transactions, categories, currency, deleteTransactionWithUndo, selectedMonth, changeMonth, payDay, periodLabel, t } = useApp()
   const [filter, setFilter] = useState(initialCategory || 'all')
   const [scope, setScope] = useState(initialScope || 'month')
   const [search, setSearch] = useState('')
@@ -20,9 +20,7 @@ export default function Transactions({ onEditTransaction, initialCategory, initi
 
   async function handleDelete(e, txId) {
     e.stopPropagation()
-    if (window.confirm(t('confirmDeleteTransaction'))) {
-      await removeTransaction(txId)
-    }
+    await deleteTransactionWithUndo(txId)
   }
 
   const filtered = useMemo(() => {

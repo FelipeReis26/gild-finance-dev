@@ -295,9 +295,13 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
                           )
                         })}
                         {withSpend.map((c) => {
+                          // Every joint is identical: a constant gap centered on
+                          // each boundary, so the 12 o'clock closure between the
+                          // last and first segments matches all the others.
+                          const GAP = withSpend.length > 1 ? 3 : 0
                           const arcLen = (c.spent / total) * circ
-                          const gap = withSpend.length > 1 ? Math.min(2.5, arcLen * 0.06) : 0
-                          const offset = -cum
+                          const drawn = Math.max(1.5, arcLen - GAP)
+                          const offset = -(cum + GAP / 2)
                           cum += arcLen
                           return (
                             <circle
@@ -308,7 +312,7 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
                               fill="none"
                               stroke={c.accent}
                               strokeWidth="13"
-                              strokeDasharray={`${Math.max(0, arcLen - gap)} ${circ - arcLen + gap}`}
+                              strokeDasharray={`${drawn} ${circ - drawn}`}
                               strokeDashoffset={offset}
                               transform="rotate(-90 105 105)"
                             />

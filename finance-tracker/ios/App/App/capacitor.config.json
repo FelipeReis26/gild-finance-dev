@@ -1,0 +1,9 @@
+{
+	"appId": "com.felipe.financetracker",
+	"appName": "Finance Tracker",
+	"webDir": "dist",
+	"bundledWebRuntime": false,
+	"packageClassList": [
+		"CapacitorSQLitePlugin"
+	]
+}

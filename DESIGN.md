@@ -183,7 +183,7 @@ The story of the flagship surface: open → the dial shows the pay period as a p
 
 **Two faces, one boundary.** Cinzel (500/600/700) and Hanken Grotesk (400–800), loaded from Google Fonts.
 
-**The Two-Face Rule.** Cinzel appears in exactly two places: the balance numeral (the applied numeral of the dial) and the GILD wordmark (top bar 16px, drawer head 22px; 600 weight, 0.18em tracked uppercase). Everything else — every label, row, figure, and button — is Hanken Grotesk. A third Cinzel sighting is wrong. The donut-gauge total is deliberately `--ui` at 24/700: it is a reading, not the balance.
+**The Two-Face Rule.** Cinzel appears in exactly two places: the balance numeral (the applied numeral of the dial) and the GILD wordmark (top bar 16px, drawer head 22px; 600 weight, 0.18em tracked uppercase). Everything else — every label, row, figure, and button — is Hanken Grotesk. A third Cinzel sighting is wrong. The breakdown ring's center total is deliberately `--ui` at 25/700: it is a reading, not the balance.
 
 **The Engraved Caps Rule.** The label grammar of this world is `.engraved`: 10px / 600 / 0.24em tracked uppercase in ink-3 — dial print, like POWER RESERVE on a watch face. It labels the instrument (LEFT TO SPEND / OVERSPENT above the numeral). It is a dial-print device native to this world, not an editorial kicker; use it to caption instruments, not to introduce prose sections. Prose section headings stay sentence-case (15/700, -0.01em).
 
@@ -254,7 +254,7 @@ Full-width 50px plate rows (14px radius, 15/600) with a chevron and `aria-expand
 
 ### Insights (inside the disclosure)
 - **Spend trend:** paired 14px sage/bronze bars per month (0.5 opacity when unselected), each a button with a money aria-label.
-- **Category breakdown:** a 200px donut of per-category accents (26px stroke, small arc gaps), total at center in `--ui` 24/700 (deliberately not Cinzel, not gold — it is a reading, not the balance), with a dot legend below.
+- **Category breakdown (the breakdown ring):** a complication in the hero dial's own grammar — a 60-tick chapter bezel (ink, every 5th tick heavier) hugging a 13px category-accent band at 3.5px, hairline arc gaps, and a rehaut hairline framing the center; the total sits centered (`--ui` 25/700, ink — a reading, not the balance) over the category count in 9px tracked engraved caps; below, a ranked list — accent dot, name, amount (600 weight tabular), share % muted right-aligned in a 32px column. The slim band + ticked bezel keep it precious rather than candy; the ranked amounts carry legibility when one category dominates.
 
 ### Chips, Inputs, Segmented
 - **Chips:** plate-2 pills, 34px; active = gold hairline, gold-light text, 14% gold tint. Category chips theme their active accent per category.

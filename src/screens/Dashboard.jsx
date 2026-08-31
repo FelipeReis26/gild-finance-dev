@@ -257,64 +257,100 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
 
           {showInsights && hasSpend && (
             <div className="card">
-              <p className="section-title" style={{ marginBottom: 16 }}>
-                {t('categoryBreakdown')}
-              </p>
               {(() => {
                 const withSpend = summary.byCategory.filter((c) => c.spent > 0).sort((a, b) => b.spent - a.spent)
                 const total = withSpend.reduce((sum, c) => sum + c.spent, 0)
-                const r = 80
-                const circumference = 2 * Math.PI * r
-                let cumulative = 0
+                const pct = (c) => Math.round((c.spent / total) * 100)
+                // Watch geometry: the tick bezel hugs the band (3.5px), a
+                // hairline rehaut frames the center, and the total fills
+                // the hole instead of floating in it.
+                const r = 86
+                const circ = 2 * Math.PI * r
+                let cum = 0
                 return (
                   <>
-                    <div className="gauge-wrap" role="img" aria-label={`${t('categoryBreakdown')}: ${money(total)}`}>
-                      <svg width="200" height="200" viewBox="0 0 200 200">
-                        {withSpend.map((c) => {
-                          const fraction = c.spent / total
-                          const arcLen = fraction * circumference
-                          const gap = withSpend.length > 1 ? Math.min(3, arcLen * 0.06) : 0
-                          const offset = -cumulative
-                          cumulative += arcLen
+                    <p className="section-title" style={{ marginBottom: 4 }}>
+                      {t('categoryBreakdown')}
+                    </p>
+                    <div
+                      className="gauge-wrap"
+                      role="img"
+                      style={{ margin: '4px 0 8px' }}
+                      aria-label={`${t('categoryBreakdown')}: ${money(total)} — ${withSpend.map((c) => `${c.name} ${pct(c)}%`).join(', ')}`}
+                    >
+                      <svg width="210" height="210" viewBox="0 0 210 210" aria-hidden="true">
+                        {Array.from({ length: 60 }, (_, i) => {
+                          const a = (i / 60) * 2 * Math.PI - Math.PI / 2
                           return (
-                            <circle
-                              key={c.id}
-                              cx="100"
-                              cy="100"
-                              r={r}
-                              fill="none"
-                              stroke={c.accent}
-                              strokeWidth="26"
-                              strokeDasharray={`${Math.max(0, arcLen - gap)} ${circumference - arcLen + gap}`}
-                              strokeDashoffset={offset}
-                              transform="rotate(-90 100 100)"
+                            <line
+                              key={`t${i}`}
+                              x1={105 + Math.cos(a) * 96}
+                              y1={105 + Math.sin(a) * 96}
+                              x2={105 + Math.cos(a) * 101}
+                              y2={105 + Math.sin(a) * 101}
+                              stroke="var(--ink)"
+                              strokeOpacity={i % 5 === 0 ? 0.22 : 0.1}
+                              strokeWidth="1"
                             />
                           )
                         })}
+                        {withSpend.map((c) => {
+                          const arcLen = (c.spent / total) * circ
+                          const gap = withSpend.length > 1 ? Math.min(2.5, arcLen * 0.06) : 0
+                          const offset = -cum
+                          cum += arcLen
+                          return (
+                            <circle
+                              key={c.id}
+                              cx="105"
+                              cy="105"
+                              r={r}
+                              fill="none"
+                              stroke={c.accent}
+                              strokeWidth="13"
+                              strokeDasharray={`${Math.max(0, arcLen - gap)} ${circ - arcLen + gap}`}
+                              strokeDashoffset={offset}
+                              transform="rotate(-90 105 105)"
+                            />
+                          )
+                        })}
+                        <circle cx="105" cy="105" r="72" fill="none" stroke="var(--ink)" strokeOpacity="0.08" strokeWidth="1" />
                         <text
-                          x="100"
-                          y="98"
+                          x="105"
+                          y="103"
                           textAnchor="middle"
-                          fontSize="24"
+                          fontSize="25"
                           fontFamily="var(--ui)"
                           fontWeight="700"
                           fill="var(--ink)"
                         >
                           {money(total)}
                         </text>
-                        <text x="100" y="118" textAnchor="middle" fontSize="12" fill="var(--text-secondary)">
-                          {withSpend.length} {withSpend.length === 1 ? t('categorySingular') : t('categoriesPlural')}
+                        <text
+                          x="105"
+                          y="123"
+                          textAnchor="middle"
+                          fontSize="9"
+                          letterSpacing="2"
+                          fill="var(--ink-3)"
+                        >
+                          {`${withSpend.length} ${withSpend.length === 1 ? t('categorySingular') : t('categoriesPlural')}`.toUpperCase()}
                         </text>
                       </svg>
                     </div>
-                    <div className="stack" style={{ marginTop: 8 }}>
+                    <div className="stack" style={{ gap: 9, marginTop: 4 }}>
                       {withSpend.map((c) => (
                         <div key={c.id} className="row between" style={{ fontSize: 14 }}>
-                          <span className="row gap" style={{ gap: 8 }}>
+                          <span className="row gap" style={{ gap: 9 }}>
                             <span className="dot" style={{ background: c.accent }} />
                             {c.name}
                           </span>
-                          <span className="muted">{Math.round((c.spent / total) * 100)}%</span>
+                          <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            <span style={{ fontWeight: 600 }}>{money(c.spent)}</span>
+                            <span className="muted" style={{ marginLeft: 9, fontSize: 12, display: 'inline-block', width: 32, textAlign: 'right' }}>
+                              {pct(c)}%
+                            </span>
+                          </span>
                         </div>
                       ))}
                     </div>

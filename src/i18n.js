@@ -117,6 +117,8 @@ const strings = {
   possibleDuplicate: { en: 'possible duplicate', fr: 'doublon possible', 'pt-BR': 'possível duplicata', it: 'possibile duplicato', es: 'posible duplicado' },
   addMoreScreenshots: { en: 'Add more screenshots', fr: 'Ajouter des captures', 'pt-BR': 'Adicionar mais capturas', it: 'Aggiungi altri screenshot', es: 'Añadir más capturas' },
   learnedFromHistory: { en: 'from your history', fr: 'depuis votre historique', 'pt-BR': 'do seu histórico', it: 'dalla tua cronologia', es: 'de tu historial' },
+  rememberedShop: { en: 'remembered', fr: 'mémorisé', 'pt-BR': 'memorizado', it: 'memorizzato', es: 'recordado' },
+  unclearScan: { en: 'unclear scan — check', fr: 'scan peu net — vérifiez', 'pt-BR': 'leitura ruim — confira', it: 'scansione poco chiara — controlla', es: 'lectura poco clara — revisa' },
 
   // Settings
   settingsTitle: { en: 'Settings', fr: 'Réglages', 'pt-BR': 'Configurações', it: 'Impostazioni', es: 'Ajustes' },

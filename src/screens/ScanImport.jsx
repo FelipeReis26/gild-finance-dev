@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { createWorker } from 'tesseract.js'
 import { useApp } from '../context/AppContext.jsx'
-import { todayLocalDate, findImportDuplicates } from '../db.js'
+import { todayLocalDate, findImportDuplicates, getMerchantMap, rememberMerchantCategory, lookupMerchantCategory } from '../db.js'
 
 // Real on-device text recognition, no server or API key needed.
 // Runs entirely in the browser via tesseract.js, then a few rules
@@ -9,21 +9,104 @@ import { todayLocalDate, findImportDuplicates } from '../db.js'
 // One worker for the whole batch: spinning one up is the slow part, so
 // reusing it across images makes scanning several receipts far quicker
 // than scanning them one at a time.
+// Photographed receipts are the hard case: coloured thermal paper, glare,
+// faint print, phone-camera noise. Converting to grey and stretching the
+// contrast between the paper and the ink — and upscaling small crops —
+// gives the recogniser a far cleaner image than the raw photo. All of it
+// happens on the device, in a canvas.
+async function preprocess(file) {
+  try {
+    const bitmap = await createImageBitmap(file)
+    const longest = Math.max(bitmap.width, bitmap.height)
+    // Small images are upscaled (OCR likes ~1600px of receipt), huge phone
+    // photos are capped so a batch cannot exhaust memory.
+    const scale = Math.min(3, Math.max(0.5, 1600 / longest))
+    const w = Math.max(1, Math.round(bitmap.width * scale))
+    const h = Math.max(1, Math.round(bitmap.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    ctx.drawImage(bitmap, 0, 0, w, h)
+    bitmap.close?.()
+
+    const img = ctx.getImageData(0, 0, w, h)
+    const d = img.data
+    // Luminance, and a histogram to find where paper and ink actually sit.
+    const hist = new Uint32Array(256)
+    for (let i = 0; i < d.length; i += 4) {
+      const g = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) | 0
+      d[i] = d[i + 1] = d[i + 2] = g
+      hist[g]++
+    }
+    // Percentile clip: ignore the darkest/lightest 2% so a glare spot or a
+    // dark background does not flatten the whole page.
+    const total = w * h
+    const cut = total * 0.02
+    let acc = 0
+    let lo = 0
+    let hi = 255
+    for (let v = 0; v < 256; v++) {
+      acc += hist[v]
+      if (acc > cut) {
+        lo = v
+        break
+      }
+    }
+    acc = 0
+    for (let v = 255; v >= 0; v--) {
+      acc += hist[v]
+      if (acc > cut) {
+        hi = v
+        break
+      }
+    }
+    const span = Math.max(1, hi - lo)
+    for (let i = 0; i < d.length; i += 4) {
+      let v = ((d[i] - lo) / span) * 255
+      v = v < 0 ? 0 : v > 255 ? 255 : v
+      d[i] = d[i + 1] = d[i + 2] = v
+    }
+    ctx.putImageData(img, 0, 0)
+    return await new Promise((resolve) => canvas.toBlob((b) => resolve(b || file), 'image/png'))
+  } catch {
+    // Any failure just means the recogniser sees the original photo.
+    return file
+  }
+}
+
 async function scanImages(files, onProgress) {
   const worker = await createWorker('eng')
-  const texts = []
+  const results = []
   try {
     for (let i = 0; i < files.length; i++) {
       onProgress?.(i + 1, files.length)
-      const {
-        data: { text }
-      } = await worker.recognize(files[i])
-      texts.push(text)
+      const prepared = await preprocess(files[i])
+      let { data } = await worker.recognize(prepared)
+      // Second chance: when the first pass finds no money at all, the page
+      // segmentation is usually the problem, so retry reading it as one
+      // single column — which is what a receipt is.
+      if (!/\d[.,]\d{2}/.test(data.text || '')) {
+        try {
+          await worker.setParameters({ tessedit_pageseg_mode: '4' })
+          const retry = await worker.recognize(prepared)
+          if (/\d[.,]\d{2}/.test(retry.data.text || '')) data = retry.data
+        } catch {
+          /* keep the first pass */
+        } finally {
+          try {
+            await worker.setParameters({ tessedit_pageseg_mode: '3' })
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      results.push({ text: data.text || '', confidence: data.confidence ?? null })
     }
   } finally {
     await worker.terminate()
   }
-  return texts
+  return results
 }
 
 // What the person has actually saved before beats any keyword table: if
@@ -406,8 +489,11 @@ export default function ScanImport({ onConfirmed }) {
   const [results, setResults] = useState([])
   const [error, setError] = useState('')
 
-  function interpret(rawText) {
+  function interpret(rawText, merchantMap, confidence) {
     const parsed = parseReceiptText(rawText)
+    // What the person filed this shop under before outranks everything,
+    // including the brand table: an explicit correction is a decision.
+    const remembered = lookupMerchantCategory(merchantMap, parsed.merchant)
     // Priority: a recognized brand is definitive; otherwise a strong history
     // match on the merchant name; otherwise the keyword guess. History never
     // overrides a known brand.
@@ -420,14 +506,17 @@ export default function ScanImport({ onConfirmed }) {
       expenseCategories.find((c) => c.id === 'other')?.id ||
       expenseCategories.find((c) => /other|misc/i.test(c.name))?.id ||
       expenseCategories[expenseCategories.length - 1]?.id
-    const guessed = (known && learned.categoryId) || parsed.guessedCategoryId
+    const rememberedOk = remembered && expenseCategories.some((c) => c.id === remembered)
+    const guessed = (rememberedOk && remembered) || (known && learned.categoryId) || parsed.guessedCategoryId
     return {
       ...parsed,
       // Money shows its cents: "3.30", not "3.3".
       amount: parsed.amount ? Number(parsed.amount).toFixed(2) : '',
       id: Math.random().toString(36).slice(2, 9),
       guessedCategoryId: guessed || neutral,
-      learned: Boolean(known) && Boolean(guessed)
+      remembered: Boolean(rememberedOk),
+      unclear: typeof confidence === 'number' && confidence > 0 && confidence < 60,
+      learned: Boolean(known) && !rememberedOk && Boolean(guessed)
     }
   }
 
@@ -438,8 +527,11 @@ export default function ScanImport({ onConfirmed }) {
     setError('')
     setProgress({ done: 0, total: chosen.length })
     try {
-      const texts = await scanImages(chosen, (done, total) => setProgress({ done, total }))
-      const parsed = texts.map(interpret).filter((r) => r.amount || r.merchant !== 'Unknown merchant')
+      const scans = await scanImages(chosen, (done, total) => setProgress({ done, total }))
+      const merchantMap = await getMerchantMap()
+      const parsed = scans
+        .map((sc) => interpret(sc.text, merchantMap, sc.confidence))
+        .filter((r) => r.amount || r.merchant !== 'Unknown merchant')
       if (!parsed.length) {
         setError(t('couldNotRead'))
       } else {
@@ -478,6 +570,11 @@ export default function ScanImport({ onConfirmed }) {
         date: r.date,
         note: r.merchant
       })
+      // Confirming is the teaching moment: whatever category this shop ends
+      // up in, that is what it means next time.
+      if (r.merchant && r.merchant !== 'Unknown merchant') {
+        await rememberMerchantCategory(r.merchant, r.guessedCategoryId)
+      }
     }
     setResults([])
     onConfirmed?.()
@@ -579,6 +676,7 @@ export default function ScanImport({ onConfirmed }) {
               {r.isDuplicate && (
                 <span style={{ color: 'var(--debit)', marginLeft: 6 }}>· {t('possibleDuplicate')}</span>
               )}
+              {r.unclear && <span style={{ color: 'var(--debit)', marginLeft: 6 }}>· {t('unclearScan')}</span>}
             </label>
             <button
               type="button"
@@ -605,7 +703,10 @@ export default function ScanImport({ onConfirmed }) {
 
           <label className="field-label">
             {t('category')}
-            {r.learned && <span style={{ color: 'var(--credit)', marginLeft: 6 }}>· {t('learnedFromHistory')}</span>}
+            {r.remembered && <span style={{ color: 'var(--credit)', marginLeft: 6 }}>· {t('rememberedShop')}</span>}
+            {!r.remembered && r.learned && (
+              <span style={{ color: 'var(--credit)', marginLeft: 6 }}>· {t('learnedFromHistory')}</span>
+            )}
           </label>
           <select value={r.guessedCategoryId || ''} onChange={(e) => patch(r.id, { guessedCategoryId: e.target.value })}>
             {expenseCategories.map((c) => (

@@ -19,32 +19,102 @@ async function scanImage(file) {
 // "SPAR" was filed under Food last time, it is Food this time. Built from
 // the local transaction history, so it stays on the device and gets more
 // accurate the longer the app is used.
-function learnFromHistory(text, transactions) {
-  const lower = text.toLowerCase()
+function learnFromHistory(merchant, transactions) {
+  // Matched against the detected MERCHANT only, never the whole receipt:
+  // matching raw OCR text let loyalty boilerplate ("this visit you missed
+  // out on…") trigger a confident-looking wrong category.
+  if (!merchant) return null
+  const target = merchant.toLowerCase()
+  const targetWords = new Set(
+    target.split(/[^a-z0-9&]+/).filter((w) => w.length >= 5 && !STOPWORDS.has(w))
+  )
+  if (!targetWords.size) return null
+
   const scores = new Map()
   for (const tx of transactions) {
     if (tx.type !== 'expense' || !tx.note || !tx.categoryId) continue
-    // Match on the distinctive words of past notes, not the whole string.
-    const words = tx.note
-      .toLowerCase()
-      .split(/[^a-z0-9&]+/)
-      .filter((w) => w.length >= 4)
-    for (const w of words) {
-      if (lower.includes(w)) {
-        scores.set(tx.categoryId, (scores.get(tx.categoryId) || 0) + w.length)
-      }
+    const note = tx.note.toLowerCase()
+    // Whole-name agreement is the strong signal.
+    if (note === target) {
+      scores.set(tx.categoryId, (scores.get(tx.categoryId) || 0) + 20)
+      continue
+    }
+    for (const w of note.split(/[^a-z0-9&]+/)) {
+      if (w.length < 5 || STOPWORDS.has(w)) continue
+      if (targetWords.has(w)) scores.set(tx.categoryId, (scores.get(tx.categoryId) || 0) + w.length)
     }
   }
   if (!scores.size) return null
   const [best] = [...scores.entries()].sort((a, b) => b[1] - a[1])
+  // Below this, the "evidence" is a coincidence, not a habit.
+  if (best[1] < 10) return null
   return { categoryId: best[0], learned: true }
 }
 
 const NOISE_WORDS = [
   'receipt', 'subtotal', 'total', 'tax', 'vat', 'change', 'cash', 'card',
   'visa', 'mastercard', 'thank you', 'balance', 'tel:', 'www.', 'http',
-  'auth code', 'approved', 'terminal', 'merchant id', 'contactless'
+  'auth code', 'approved', 'terminal', 'merchant id', 'contactless',
+  // Loyalty and marketing boilerplate, which is often the longest prose on
+  // the page and used to win the merchant guess outright.
+  'clubcard', 'loyalty', 'points', 'savings', 'saved', 'you missed', 'missed out',
+  'download', 'join ', 'sign up', 'register', 'app,', 'the app', 'store-locator',
+  'any questions', 'please visit', 'customer', 'survey', 'feedback', 'win ',
+  'voucher', 'coupon', 'offer', 'promotion', 'terms', 'conditions', 'returns',
+  'exchange', 'policy', 'retain', 'keep this', 'proof of purchase',
+  // Payment trailer
+  'debit', 'credit', 'aid:', 'pan ', 'sequence', 'authorisation', 'authorization',
+  'aut code', 'ref:', 'reference', 'till', 'operator', 'cashier', 'transaction',
+  'expiry', 'contact', 'iban', 'sort code', 'account no'
 ]
+
+// Known retailers: the strongest signal on the page. A brand hit names the
+// merchant AND its category outright, which beats every heuristic below.
+const BRANDS = [
+  { match: ['tesco'], name: 'Tesco', categoryId: 'food' },
+  { match: ['lidl'], name: 'Lidl', categoryId: 'food' },
+  { match: ['aldi'], name: 'Aldi', categoryId: 'food' },
+  { match: ['dunnes'], name: 'Dunnes Stores', categoryId: 'food' },
+  { match: ['supervalu', 'super valu'], name: 'SuperValu', categoryId: 'food' },
+  { match: ['centra'], name: 'Centra', categoryId: 'food' },
+  { match: ['spar'], name: 'Spar', categoryId: 'food' },
+  { match: ['marks & spencer', 'marks and spencer', 'm&s '], name: 'Marks & Spencer', categoryId: 'food' },
+  { match: ['sainsbury'], name: "Sainsbury's", categoryId: 'food' },
+  { match: ['asda'], name: 'Asda', categoryId: 'food' },
+  { match: ['waitrose'], name: 'Waitrose', categoryId: 'food' },
+  { match: ['carrefour'], name: 'Carrefour', categoryId: 'food' },
+  { match: ['mercadona'], name: 'Mercadona', categoryId: 'food' },
+  { match: ['starbucks'], name: 'Starbucks', categoryId: 'food' },
+  { match: ['costa coffee'], name: 'Costa Coffee', categoryId: 'food' },
+  { match: ["mcdonald"], name: "McDonald's", categoryId: 'food' },
+  { match: ['circle k'], name: 'Circle K', categoryId: 'fuel-insurance' },
+  { match: ['applegreen'], name: 'Applegreen', categoryId: 'fuel-insurance' },
+  { match: ['maxol'], name: 'Maxol', categoryId: 'fuel-insurance' },
+  { match: ['shell'], name: 'Shell', categoryId: 'fuel-insurance' },
+  { match: ['esso'], name: 'Esso', categoryId: 'fuel-insurance' },
+  { match: ['boots'], name: 'Boots', categoryId: 'health' },
+  { match: ['pharmacy', 'chemist'], name: 'Pharmacy', categoryId: 'health' },
+  { match: ['ikea'], name: 'IKEA', categoryId: 'purchases' },
+  { match: ['penneys', 'primark'], name: 'Penneys', categoryId: 'purchases' },
+  { match: ['argos'], name: 'Argos', categoryId: 'purchases' },
+  { match: ['currys'], name: 'Currys', categoryId: 'purchases' },
+  { match: ['amazon'], name: 'Amazon', categoryId: 'purchases' },
+  { match: ['netflix'], name: 'Netflix', categoryId: 'streaming' },
+  { match: ['spotify'], name: 'Spotify', categoryId: 'streaming' },
+  { match: ['disney'], name: 'Disney+', categoryId: 'streaming' },
+  { match: ['vodafone'], name: 'Vodafone', categoryId: 'utilities' },
+  { match: ['electric ireland'], name: 'Electric Ireland', categoryId: 'utilities' },
+  { match: ['bord gais', 'bord gáis'], name: 'Bord Gáis', categoryId: 'utilities' }
+]
+
+// Words too common to prove anything when matching against past notes.
+const STOPWORDS = new Set([
+  'this', 'that', 'with', 'from', 'your', 'you', 'the', 'and', 'for', 'was',
+  'visit', 'missed', 'store', 'shop', 'today', 'total', 'card', 'cash', 'paid',
+  'payment', 'purchase', 'item', 'items', 'unit', 'price', 'prices', 'refill',
+  'original', 'bonus', 'fresh', 'power', 'clean', 'cleaner', 'liquid', 'spray',
+  'number', 'code', 'date', 'time', 'thank', 'please', 'here', 'have', 'been'
+])
 const TOTAL_KEYWORDS = ['total', 'amount', 'amount due', 'balance due', 'paid', 'subtotal', 'grand total']
 
 function looksLikeDate(line) {
@@ -104,18 +174,35 @@ function parseReceiptText(text) {
     if (all.length) amount = Math.max(...all)
   }
 
-  // Merchant: the longest remaining line made mostly of letters, after
-  // filtering out dates, pure numbers, and common receipt boilerplate.
-  const merchantLine = lines
-    .filter((l) => {
-      if (!/[a-zA-Z]{3,}/.test(l)) return false
-      if (/^\d/.test(l)) return false
-      if (looksLikeDate(l)) return false
-      const lower = l.toLowerCase()
+  // Merchant. A shop's name sits in the first few lines, is short, and is
+  // usually set in caps — it is never the longest prose on the page, which
+  // is what the old "longest line" rule kept picking (loyalty blurbs).
+  const brand = BRANDS.find((b) => b.match.some((m) => text.toLowerCase().includes(m)))
+  const candidates = lines
+    .map((line, i) => ({ line, i }))
+    .filter(({ line }) => {
+      if (!/[a-zA-Z]{3,}/.test(line)) return false
+      if (/^\d/.test(line)) return false
+      if (looksLikeDate(line)) return false
+      // A line carrying a price is an item line, not the shop name.
+      if (/\d[.,]\d{2}/.test(line)) return false
+      const lower = line.toLowerCase()
       if (NOISE_WORDS.some((w) => lower.includes(w))) return false
-      return true
+      // Sentences are marketing copy, not names.
+      if (/^(this|any|please|we |our |all |if |to |for |get |download|join|sign)/.test(lower)) return false
+      const words = line.split(/\s+/).length
+      return words <= 6
     })
-    .sort((a, b) => b.length - a.length)[0]
+    .map(({ line, i }) => {
+      let score = 0
+      score += Math.max(0, 12 - i * 3) // position: the top of the receipt
+      const letters = line.replace(/[^a-zA-Z]/g, '')
+      if (letters && letters === letters.toUpperCase()) score += 5 // caps header
+      if (line.length >= 4 && line.length <= 28) score += 3 // name-shaped
+      return { line, score }
+    })
+    .sort((a, b) => b.score - a.score)
+  const merchantLine = brand ? brand.name : candidates[0]?.line
 
   // Category guess from keywords in the recognized text.
   const lower = text.toLowerCase()
@@ -126,7 +213,7 @@ function parseReceiptText(text) {
     { keywords: ['rent', 'landlord'], categoryId: 'rent' },
     { keywords: ['vodafone', 'three', 'eir', 'internet', 'broadband', 'virgin media', 'apple.com'], categoryId: 'utilities' }
   ]
-  const match = keywordMap.find((k) => k.keywords.some((word) => lower.includes(word)))
+  const match = brand || keywordMap.find((k) => k.keywords.some((word) => lower.includes(word)))
 
   // Date: use the receipt's own date when one is legible and sane, rather
   // than always stamping today — a receipt scanned days later belongs to
@@ -182,6 +269,7 @@ function parseReceiptText(text) {
     merchant: merchant || 'Unknown merchant',
     date,
     guessedCategoryId: match?.categoryId || null,
+    brandMatched: Boolean(brand),
     rawText: text.trim()
   }
 }
@@ -203,8 +291,10 @@ export default function ScanImport({ onConfirmed }) {
     try {
       const rawText = await scanImage(chosen)
       const parsed = parseReceiptText(rawText)
-      // Your own filing history outranks the built-in keyword table.
-      const learned = learnFromHistory(rawText, transactions)
+      // Priority: a recognized brand (parsed.brandMatched) is definitive;
+      // otherwise a strong history match on the merchant name; otherwise
+      // the keyword guess. History never overrides a known brand.
+      const learned = parsed.brandMatched ? null : learnFromHistory(parsed.merchant, transactions)
       const known = learned && expenseCategories.some((c) => c.id === learned.categoryId)
       setResult({
         ...parsed,

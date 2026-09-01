@@ -105,7 +105,15 @@ export default function App() {
       <div className="app-shell" {...edgeSwipe}>
         <main className="app-main">
           {overlay === 'addTransaction' && (
-            <AddTransaction prefill={editingTx} editingId={editingTx?.id} onDone={closeOverlay} />
+            <AddTransaction
+              prefill={editingTx}
+              editingId={editingTx?.id}
+              onDone={closeOverlay}
+              onScan={() => {
+                closeOverlay()
+                handleTabChange('scan')
+              }}
+            />
           )}
           {overlay === 'addBill' && <AddBill onDone={closeOverlay} />}
 

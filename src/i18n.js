@@ -103,6 +103,9 @@ const strings = {
   discard: { en: 'Discard', fr: 'Ignorer', 'pt-BR': 'Descartar', it: 'Scarta', es: 'Descartar' },
   confirm: { en: 'Confirm', fr: 'Confirmer', 'pt-BR': 'Confirmar', it: 'Conferma', es: 'Confirmar' },
   couldNotRead: { en: 'Could not read that screenshot. Try another one.', fr: "Impossible de lire cette capture. Essayez-en une autre.", 'pt-BR': 'Não foi possível ler essa captura. Tente outra.', it: 'Impossibile leggere questo screenshot. Provane un altro.', es: 'No se pudo leer esa captura. Prueba con otra.' },
+  rawRecognizedText: { en: 'Raw recognized text', fr: 'Texte brut reconnu', 'pt-BR': 'Texto reconhecido bruto', it: 'Testo grezzo riconosciuto', es: 'Texto reconocido sin procesar' },
+  scanInstead: { en: 'Scan', fr: 'Scanner', 'pt-BR': 'Escanear', it: 'Scansiona', es: 'Escanear' },
+  learnedFromHistory: { en: 'from your history', fr: 'depuis votre historique', 'pt-BR': 'do seu histórico', it: 'dalla tua cronologia', es: 'de tu historial' },
 
   // Settings
   settingsTitle: { en: 'Settings', fr: 'Réglages', 'pt-BR': 'Configurações', it: 'Impostazioni', es: 'Ajustes' },

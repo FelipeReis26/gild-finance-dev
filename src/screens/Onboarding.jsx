@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import * as db from '../db.js'
-import { languageOptions } from '../i18n.js'
+import { languageOptions, localeFor } from '../i18n.js'
 import { t as translate } from '../i18n.js'
 
 const STEPS = ['welcome', 'money', 'categories', 'income', 'finish']
@@ -9,13 +9,24 @@ export default function Onboarding({ onDone }) {
   const [step, setStep] = useState(0)
   const [lang, setLang] = useState('en')
   const [currencyCode, setCurrencyCode] = useState('EUR')
+  const [payMode, setPayMode] = useState('day')
   const [payDay, setPayDay] = useState('1')
+  const [payWeekday, setPayWeekday] = useState(5)
   const [categories, setCategories] = useState([])
   const [kept, setKept] = useState({})
   const [incomeAmount, setIncomeAmount] = useState('')
   const [incomeSkipped, setIncomeSkipped] = useState(false)
 
   const t = (key) => translate(lang, key)
+
+  // The pay rule the current selections describe — used for the live period
+  // preview and saved verbatim on finish.
+  const payRule =
+    payMode === 'lastWeekday'
+      ? { type: 'lastWeekday', weekday: Number(payWeekday) }
+      : payMode === 'lastWorkingDay'
+        ? { type: 'lastWorkingDay' }
+        : { type: 'day', day: payDay }
 
   useEffect(() => {
     db.getCategories().then((cats) => {
@@ -39,7 +50,7 @@ export default function Onboarding({ onDone }) {
 
   async function finish(goToImport) {
     await db.setCurrency(db.currencyOptions?.find?.((c) => c.code === currencyCode) || { code: currencyCode, symbol: '€' })
-    await db.setPayDay(payDay)
+    await db.setPayDay(payRule)
     for (const c of categories) {
       if (!kept[c.id]) await db.deleteCategory(c.id)
     }
@@ -99,16 +110,44 @@ export default function Onboarding({ onDone }) {
                 <option value="USD">USD ($)</option>
                 <option value="GBP">GBP (£)</option>
               </select>
-              <label className="field-label">{t('payDayField')}</label>
-              <input
-                type="number"
-                inputMode="numeric"
-                min="1"
-                max="31"
-                value={payDay}
-                onChange={(e) => setPayDay(e.target.value)}
-              />
+              <label className="field-label">{t('payDay')}</label>
+              <select value={payMode} onChange={(e) => setPayMode(e.target.value)}>
+                <option value="day">{t('payDayModeDay')}</option>
+                <option value="lastWeekday">{t('payDayModeLastWeekday')}</option>
+                <option value="lastWorkingDay">{t('payDayModeLastWorking')}</option>
+              </select>
+              {payMode === 'day' && (
+                <>
+                  <label className="field-label">{t('payDayField')}</label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    max="31"
+                    value={payDay}
+                    onChange={(e) => setPayDay(e.target.value)}
+                  />
+                </>
+              )}
+              {payMode === 'lastWeekday' && (
+                <>
+                  <label className="field-label">{t('weekday')}</label>
+                  <select value={payWeekday} onChange={(e) => setPayWeekday(e.target.value)}>
+                    {[1, 2, 3, 4, 5, 6, 0].map((dow) => (
+                      <option key={dow} value={dow}>
+                        {new Date(Date.UTC(2024, 0, 1 + ((dow + 6) % 7))).toLocaleDateString(localeFor(lang), {
+                          weekday: 'long',
+                          timeZone: 'UTC'
+                        })}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
               <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>{t('payDayNote')}</p>
+              <p className="muted" style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+                {t('payDayCurrent')}: {db.periodLabel(db.currentPeriodKey(payRule), payRule, lang)}
+              </p>
             </div>
           )}
 

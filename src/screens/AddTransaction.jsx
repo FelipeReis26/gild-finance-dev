@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
 import { todayLocalDate } from '../db.js'
 
-export default function AddTransaction({ prefill, editingId, onDone }) {
+export default function AddTransaction({ prefill, editingId, onDone, onScan }) {
   const { categories, currency, addTransaction, editTransaction, deleteTransactionWithUndo, t } = useApp()
   const [type, setType] = useState(prefill?.type || 'expense')
   const [amount, setAmount] = useState(prefill?.amount ?? '')
@@ -49,7 +49,17 @@ export default function AddTransaction({ prefill, editingId, onDone }) {
 
   return (
     <div className="screen">
-      <p className="section-title">{editingId ? t('editTransaction') : t('addTransaction')}</p>
+      <div className="row between">
+        <p className="section-title" style={{ margin: 0 }}>
+          {editingId ? t('editTransaction') : t('addTransaction')}
+        </p>
+        {!editingId && onScan && (
+          <button type="button" className="mini-button row gap" style={{ gap: 6 }} onClick={onScan}>
+            <i className="ti ti-camera" aria-hidden="true"></i>
+            {t('scanInstead')}
+          </button>
+        )}
+      </div>
 
       {/* Setting the instrument: direction, then the figure itself. */}
       <div className="card">

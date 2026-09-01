@@ -501,7 +501,30 @@ input[type='date'] {
 
 .scan-icon {
   font-size: 36px;
-  color: var(--gold-light);
+  color: var(--ink-3);
+}
+
+/* Working indicator: a seconds hand sweeping its own chapter ring */
+.sweep {
+  width: 64px;
+  height: 64px;
+}
+
+.sweep-hand {
+  transform-origin: 32px 32px;
+  animation: sweep-rotate 1.6s linear infinite;
+}
+
+@keyframes sweep-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sweep-hand {
+    animation-duration: 4s;
+  }
 }
 
 .close-overlay {
@@ -688,10 +711,10 @@ input[type='date'] {
 }
 
 .hero-amount {
-  font-family: var(--display);
-  font-size: 40px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-family: var(--ui);
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   line-height: 1.05;
   margin: 0;
   color: var(--gold);

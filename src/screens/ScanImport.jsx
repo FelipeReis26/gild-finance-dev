@@ -154,6 +154,9 @@ function looksLikeAddressOrRef(line) {
   const l = line.toLowerCase()
   if (/\btel\b|\bvat\b|\bfax\b|\bwww\.|\bno\s*:|#|\bchk\b|\bgst\b|\bws\b|\bemail\b/.test(l)) return true
   if (/\b(street|road|avenue|lane|drive|square|st\.|rd\.|ave\.|floor|unit|suite)\b/.test(l)) return true
+  // Column headers from the item table ("Quan Descript Cost", "Unid.
+  // Descripcion Precio Importe") used to win the merchant guess.
+  if (/\b(quan|qty|descript|descripci|description|precio|importe|import|cost|price|amount|unid|mesa|table|serv)\b/.test(l)) return true
   // Irish Eircode / UK-style postcode: a letter-digit block next to another.
   if (/\b[a-z]\d{2}\s?[a-z0-9]{4}\b/i.test(line)) return true
   // Phone-like runs of digits.
@@ -186,32 +189,51 @@ function parseReceiptText(text) {
   const amountsIn = (str) =>
     [...fixDigits(str).matchAll(moneyPattern)].map((m) => toNumber(m[1])).filter((n) => !isNaN(n) && n > 0)
 
+  // Lines whose figures are never the amount charged: savings, discounts,
+  // loyalty credit, change, and VAT components.
+  const isNegativeContext = (l) => /saved|saving|discount|off\b|change|points|vat|iva|tax|tip|service charge/i.test(l)
+
+  // Count how often each value appears. A till receipt repeats the amount
+  // charged (TOTAL, AMOUNT DUE, CARD TENDERED), while an OCR misread of it
+  // appears once — so repetition is strong evidence of the real total.
+  const occurrences = new Map()
+  for (const line of lines) {
+    if (isNegativeContext(line)) continue
+    for (const n of amountsIn(line)) occurrences.set(n, (occurrences.get(n) || 0) + 1)
+  }
+
   let amount = ''
   // 1. A line naming the grand total wins outright, and the strongest
   //    keyword wins over a mere "subtotal".
-  const ranked = [...lines].sort((a, b) => {
-    const score = (l) => {
-      const t = l.toLowerCase()
-      if (/grand total|amount due|balance due|total due/.test(t)) return 3
-      if (/\btotal\b/.test(t) && !/sub/.test(t)) return 2
-      if (/subtotal|amount|paid/.test(t)) return 1
-      return 0
-    }
-    return score(b) - score(a)
-  })
-  for (const line of ranked) {
-    if (!TOTAL_KEYWORDS.some((k) => line.toLowerCase().includes(k))) break
-    const found = amountsIn(line)
-    if (found.length) {
-      amount = Math.max(...found)
-      break
-    }
+  const scoreLine = (l) => {
+    const t = l.toLowerCase()
+    if (isNegativeContext(l)) return -1
+    if (/grand total|amount due|balance due|total due/.test(t)) return 3
+    if (/\btotal\b/.test(t) && !/sub/.test(t)) return 2
+    if (/subtotal|amount|paid|tendered/.test(t)) return 1
+    return 0
   }
-  // 2. Otherwise the largest plausible money value anywhere, ignoring
-  //    values that are clearly not prices.
+  const ranked = [...lines].filter((l) => scoreLine(l) > 0).sort((a, b) => scoreLine(b) - scoreLine(a))
+  const totalCandidates = []
+  for (const line of ranked) {
+    for (const n of amountsIn(line)) totalCandidates.push({ n, weight: scoreLine(line) })
+  }
+  if (totalCandidates.length) {
+    // Among keyword-line figures, prefer the one that repeats across the
+    // receipt, then the strongest keyword, then the largest.
+    totalCandidates.sort(
+      (a, b) =>
+        (occurrences.get(b.n) || 0) - (occurrences.get(a.n) || 0) || b.weight - a.weight || b.n - a.n
+    )
+    amount = totalCandidates[0].n
+  }
+  // 2. Otherwise the most-repeated plausible money value, then the largest.
   if (!amount) {
-    const all = amountsIn(text).filter((n) => n < 100000)
-    if (all.length) amount = Math.max(...all)
+    const all = [...occurrences.entries()].filter(([n]) => n < 100000)
+    if (all.length) {
+      all.sort((a, b) => b[1] - a[1] || b[0] - a[0])
+      amount = all[0][0]
+    }
   }
 
   // Merchant. A shop's name sits in the first few lines, is short, and is
@@ -265,6 +287,7 @@ function parseReceiptText(text) {
     { keywords: ['tesco', 'supermarket', 'grocery', 'lidl', 'aldi', 'spar', 'dunnes', 'mcdonald', 'coffee'], categoryId: 'food' },
     { keywords: ['shell', 'esso', 'circle k', 'fuel', 'petrol', 'freenow', 'taxi', 'uber', 'eflow', 'toll'], categoryId: 'fuel-insurance' },
     { keywords: ['takeaway', 'restaurant', 'diner', 'cafe', 'deli', 'bakery', 'burger', 'pizza', 'fries', 'shake', 'sandwich', 'kebab', 'sushi', 'bar & grill'], categoryId: 'food' },
+    { keywords: ['pint', 'pt', 'peroni', 'moretti', 'guinness', 'heineken', 'carlsberg', 'san miguel', 'lager', 'beer', 'wine', 'cocktail', 'gin', 'vodka', 'whiskey', 'cordial', 'tap room', 'brewery'], categoryId: 'food' },
     { keywords: ['rent', 'landlord', 'tenancy'], categoryId: 'rent' },
     { keywords: ['vodafone', 'three', 'eir', 'internet', 'broadband', 'virgin media', 'apple.com'], categoryId: 'utilities' }
   ]
@@ -278,17 +301,24 @@ function parseReceiptText(text) {
   // than always stamping today — a receipt scanned days later belongs to
   // the day it happened, which is what the pay-period maths reads.
   let date = todayLocalDate()
+  // Normalise OCR digit confusion before matching dates, and prefer a line
+  // that labels itself as the date.
+  const dateSource = (() => {
+    const labelled = lines.filter((l) => /\bdate\b|\bfecha\b|\bdata\b/i.test(l)).join('\n')
+    const body = labelled || text
+    return body.replace(/(?<=[\d\/.\-])[OoQ]|[OoQ](?=[\d\/.\-])/g, '0').replace(/(?<=[\d\/.\-])[lI]|[lI](?=[\d\/.\-])/g, '1')
+  })()
   // Month-name dates first — "28 Aug'23", "28 Aug 2023", "AUG 28, 2023",
   // "28-AUG-23". These are everywhere on till receipts and used to fall
   // through to today, silently filing the expense in the wrong period.
   const monthAlt = MONTH_NAMES.join('|')
   const named =
-    text.match(new RegExp(`\\b(\\d{1,2})\\s*[-\\s]\\s*(${monthAlt})[a-z]*\\.?\\s*[-,\\s]*['\`]?\\s*(\\d{2,4})?\\b`, 'i')) ||
-    text.match(new RegExp(`\\b(${monthAlt})[a-z]*\\.?\\s*[-,\\s]+(\\d{1,2})\\s*[-,\\s]*['\`]?\\s*(\\d{2,4})?\\b`, 'i'))
+    dateSource.match(new RegExp(`\\b(\\d{1,2})\\s*[-\\s]\\s*(${monthAlt})[a-z]*\\.?\\s*[-,\\s]*['\`]?\\s*(\\d{2,4})?\\b`, 'i')) ||
+    dateSource.match(new RegExp(`\\b(${monthAlt})[a-z]*\\.?\\s*[-,\\s]+(\\d{1,2})\\s*[-,\\s]*['\`]?\\s*(\\d{2,4})?\\b`, 'i'))
   const dm =
-    text.match(/(\d{4})-(\d{2})-(\d{2})/) ||
-    text.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/) ||
-    text.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2})(?!\d)/)
+    dateSource.match(/(\d{4})-(\d{2})-(\d{2})/) ||
+    dateSource.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/) ||
+    dateSource.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2})(?!\d)/)
 
   let parsedParts = null
   if (named) {
@@ -342,6 +372,14 @@ function parseReceiptText(text) {
   // Merchant: strip trailing punctuation and OCR debris, and title-case
   // the shouty all-caps that receipts are printed in.
   let merchant = (merchantLine || '').replace(/[^\w&'.\- ]/g, ' ').replace(/\s{2,}/g, ' ').trim()
+  // OCR often prefixes a stray one- or two-letter fragment ("BE Coombe
+  // Community"); drop orphan tokens at either end when real words remain.
+  if (!brand) {
+    let parts = merchant.split(' ')
+    while (parts.length > 1 && parts[0].replace(/[^a-zA-Z]/g, '').length <= 2) parts.shift()
+    while (parts.length > 1 && parts[parts.length - 1].replace(/[^a-zA-Z]/g, '').length <= 2) parts.pop()
+    merchant = parts.join(' ')
+  }
   if (merchant && merchant === merchant.toUpperCase()) {
     merchant = merchant
       .toLowerCase()
@@ -375,13 +413,21 @@ export default function ScanImport({ onConfirmed }) {
     // overrides a known brand.
     const learned = parsed.brandMatched ? null : learnFromHistory(parsed.merchant, transactions)
     const known = learned && expenseCategories.some((c) => c.id === learned.categoryId)
+    // With no signal at all, fall back to a neutral catch-all rather than
+    // whichever category happens to be first in the list — that made every
+    // unrecognised receipt look confidently like "Rent".
+    const neutral =
+      expenseCategories.find((c) => c.id === 'other')?.id ||
+      expenseCategories.find((c) => /other|misc/i.test(c.name))?.id ||
+      expenseCategories[expenseCategories.length - 1]?.id
+    const guessed = (known && learned.categoryId) || parsed.guessedCategoryId
     return {
       ...parsed,
       // Money shows its cents: "3.30", not "3.3".
       amount: parsed.amount ? Number(parsed.amount).toFixed(2) : '',
       id: Math.random().toString(36).slice(2, 9),
-      guessedCategoryId: (known && learned.categoryId) || parsed.guessedCategoryId || expenseCategories[0]?.id,
-      learned: Boolean(known)
+      guessedCategoryId: guessed || neutral,
+      learned: Boolean(known) && Boolean(guessed)
     }
   }
 

@@ -105,6 +105,12 @@ const strings = {
   couldNotRead: { en: 'Could not read that screenshot. Try another one.', fr: "Impossible de lire cette capture. Essayez-en une autre.", 'pt-BR': 'Não foi possível ler essa captura. Tente outra.', it: 'Impossibile leggere questo screenshot. Provane un altro.', es: 'No se pudo leer esa captura. Prueba con otra.' },
   rawRecognizedText: { en: 'Raw recognized text', fr: 'Texte brut reconnu', 'pt-BR': 'Texto reconhecido bruto', it: 'Testo grezzo riconosciuto', es: 'Texto reconocido sin procesar' },
   scanInstead: { en: 'Scan', fr: 'Scanner', 'pt-BR': 'Escanear', it: 'Scansiona', es: 'Escanear' },
+  scanMultipleHint: { en: 'You can pick several at once.', fr: 'Vous pouvez en choisir plusieurs à la fois.', 'pt-BR': 'Você pode escolher várias de uma vez.', it: 'Puoi selezionarne più di una alla volta.', es: 'Puedes elegir varias a la vez.' },
+  receiptsFound: { en: 'found', fr: 'trouvés', 'pt-BR': 'encontrados', it: 'trovati', es: 'encontrados' },
+  confirmTransactions: { en: 'Confirm transactions', fr: 'Confirmer les transactions', 'pt-BR': 'Confirmar transações', it: 'Conferma transazioni', es: 'Confirmar transacciones' },
+  confirmSubtitlePlural: { en: 'Detected from your screenshots, check these before saving', fr: 'Détecté depuis vos captures, vérifiez avant d\'enregistrer', 'pt-BR': 'Detectado nas suas capturas, confira antes de salvar', it: 'Rilevato dai tuoi screenshot, controlla prima di salvare', es: 'Detectado en tus capturas, revisa antes de guardar' },
+  possibleDuplicate: { en: 'possible duplicate', fr: 'doublon possible', 'pt-BR': 'possível duplicata', it: 'possibile duplicato', es: 'posible duplicado' },
+  addMoreScreenshots: { en: 'Add more screenshots', fr: 'Ajouter des captures', 'pt-BR': 'Adicionar mais capturas', it: 'Aggiungi altri screenshot', es: 'Añadir más capturas' },
   learnedFromHistory: { en: 'from your history', fr: 'depuis votre historique', 'pt-BR': 'do seu histórico', it: 'dalla tua cronologia', es: 'de tu historial' },
 
   // Settings

@@ -10,6 +10,7 @@ export const changelog = [
       'Scanning is now much better at reading receipts: it recognises well-known shops by name (Tesco, Lidl, Circle K, Boots and many more) and files them correctly, picks the real total instead of the biggest number on the page, understands thousands separators, uses the date printed on the receipt, and no longer mistakes loyalty-card marketing text for the shop name',
       'Scanning also learns your own filing habits — but only when there is real evidence, so it will not guess wildly',
       'You can jump straight to Scan from the Add transaction screen',
+      'Scan several receipts at once: pick as many screenshots as you like, review them all in one list, drop any you do not want, and save them together. Likely duplicates of things you already have are flagged',
       'The dashboard now leads with how much is left to spend this pay period and how many days it has to last, instead of a "% of budget used" figure that could read over 100% just because a big unbudgeted expense like rent had landed',
       'A pace bar shows how fast money is going against how far through the period you are, so overspending is visible before the period ends',
       'Consistent colours throughout: mint always means money in, apricot money out, and the alert colour is reserved for genuinely over-budget',

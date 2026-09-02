@@ -53,7 +53,7 @@ export default function NavBar({ active, onChange }) {
         >
           <i className="ti ti-menu-2" aria-hidden="true"></i>
         </button>
-        <span className="wordmark">Gild</span>
+        <span className="wordmark">GILD</span>
       </header>
 
       {open && (
@@ -61,7 +61,7 @@ export default function NavBar({ active, onChange }) {
           <div className="drawer-scrim" onClick={() => setOpen(false)} />
           <nav className="drawer" aria-label={t('navigation')} ref={drawerRef}>
             <div className="drawer-head">
-              <span className="wordmark">Gild</span>
+              <span className="wordmark">GILD</span>
             </div>
             {items.map((item) => (
               <button

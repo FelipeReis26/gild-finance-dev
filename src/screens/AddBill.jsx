@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
 
 export default function AddBill({ onDone }) {
-  const { categories, addBill, t } = useApp()
+  const { categories, currency, addBill, t } = useApp()
   const expenseCategories = categories.filter((c) => c.kind !== 'income' && !c.archived)
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('')
   const [dueDay, setDueDay] = useState('1')
   const [categoryId, setCategoryId] = useState(expenseCategories[0]?.id || '')
   const [error, setError] = useState('')
+  const clear = () => setError('')
 
   async function handleSave() {
     const value = parseFloat(amount)
@@ -31,27 +32,41 @@ export default function AddBill({ onDone }) {
 
   return (
     <div className="screen">
+      <p className="section-title">{t('addBill')}</p>
+
+      {/* Setting the instrument: what it is called, and the figure. */}
       <div className="card">
-        <p className="section-title" style={{ marginBottom: 6 }}>
-          {t('addBill')}
-        </p>
-        <p className="muted" style={{ marginTop: 0, marginBottom: 16, fontSize: 13 }}>
-          {t('billsRecurNote')}
-        </p>
-
         <label className="field-label">{t('billName')}</label>
-        <input type="text" placeholder="Rent" value={name} onChange={(e) => setName(e.target.value)} />
+        <input
+          type="text"
+          placeholder={t('billNamePlaceholder')}
+          autoFocus
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value)
+            clear()
+          }}
+        />
 
-        <label className="field-label">{t('amount')}</label>
+        <label className="field-label">
+          {t('amount')} ({currency.symbol})
+        </label>
         <input
           className="amount-input"
           type="number"
           inputMode="decimal"
           placeholder="0.00"
           value={amount}
-          onChange={(e) => setAmount(e.target.value)}
+          onChange={(e) => {
+            setAmount(e.target.value)
+            clear()
+          }}
+          style={{ marginBottom: 0 }}
         />
+      </div>
 
+      {/* The details */}
+      <div className="card">
         <label className="field-label">{t('dueDayOfMonth')}</label>
         <input
           type="number"
@@ -60,24 +75,41 @@ export default function AddBill({ onDone }) {
           max="31"
           placeholder="1"
           value={dueDay}
-          onChange={(e) => setDueDay(e.target.value)}
+          onChange={(e) => {
+            setDueDay(e.target.value)
+            clear()
+          }}
         />
 
         <label className="field-label">{t('category')}</label>
-        <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+        <div className="grid-2 category-grid" style={{ marginBottom: 0 }}>
           {expenseCategories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
+            <button
+              type="button"
+              key={c.id}
+              className={categoryId === c.id ? 'category-chip category-chip-active' : 'category-chip'}
+              style={categoryId === c.id ? { '--chip-accent': c.accent, '--chip-tint': c.tint } : undefined}
+              onClick={() => setCategoryId(c.id)}
+            >
+              <i className={`ti ${c.icon}`} style={{ color: c.accent }} aria-hidden="true"></i> {c.name}
+            </button>
           ))}
-        </select>
-
-        {error && <p className="error-text">{error}</p>}
-
-        <button type="button" className="primary-button" onClick={handleSave}>
-          {t('saveBill')}
-        </button>
+        </div>
       </div>
+
+      <p className="muted" style={{ margin: '-6px 4px 0', fontSize: 12 }}>
+        {t('billsRecurNote')}
+      </p>
+
+      {error && (
+        <p className="error-text" role="alert" style={{ margin: '0 4px' }}>
+          {error}
+        </p>
+      )}
+
+      <button type="button" className="primary-button" onClick={handleSave}>
+        {t('saveBill')}
+      </button>
     </div>
   )
 }

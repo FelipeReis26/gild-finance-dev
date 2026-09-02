@@ -121,7 +121,7 @@ export default function Transactions({ onEditTransaction, initialCategory, initi
                     {tx.type === 'income' ? '+' : '−'}
                     {money(tx.amount)}
                   </p>
-                  <button type="button" className="mini-button" onClick={(e) => handleDelete(e, tx.id)} aria-label="Delete transaction">
+                  <button type="button" className="mini-button" onClick={(e) => handleDelete(e, tx.id)} aria-label={t('deleteTransaction')}>
                     <i className="ti ti-trash" aria-hidden="true"></i>
                   </button>
                 </div>

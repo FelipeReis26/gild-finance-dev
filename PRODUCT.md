@@ -92,10 +92,10 @@ Constraints and terminology:
 
 ## Brand Commitments
 
-- **Name: Gild.** The product presents as "Gild" (HTML/PWA title, app
+- **Name: GILD** — set in capitals, and the capitalisation is deliberate. The product presents as "GILD" (HTML/PWA title, app
   title, theme color `#12141A`), superseding the earlier working name
-  "Finance Tracker" (still the Capacitor `appName` and appId
-  `com.felipe.financetracker` for now). Confirmed as the intended name
+  "Finance Tracker" (the Capacitor `appName` is now "GILD"; the appId remains
+  `com.felipe.financetracker`, deliberately unchanged so existing installs are not orphaned). Confirmed as the intended name
   during init.
 - A gold / "gild" motif runs through the identity: the current app icon is
   a diamond (replacing an original gold monogram) and the shell renders

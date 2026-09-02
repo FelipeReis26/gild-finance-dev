@@ -643,26 +643,67 @@ function DataScreen({ onBack, t }) {
 }
 
 function AboutScreen({ onBack, t }) {
+  // The history is long, so each release is collapsed to its version and
+  // one-line summary; tapping one opens what actually changed in it.
+  const [openVersion, setOpenVersion] = useState(changelog[0]?.version || null)
   return (
     <div className="screen">
       <BackButton onBack={onBack} label={t('back')} />
       <p className="section-title">{t('versionHistory')}</p>
       <div className="stack">
-        {changelog.map((entry) => (
-          <div key={entry.version} className="card">
-            <div className="row between" style={{ marginBottom: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>v{entry.version}</span>
-              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entry.summary}</span>
+        {changelog.map((entry) => {
+          const isOpen = openVersion === entry.version
+          return (
+            <div key={entry.version} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => setOpenVersion(isOpen ? null : entry.version)}
+                aria-expanded={isOpen}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  background: 'none',
+                  border: 'none',
+                  color: 'inherit',
+                  textAlign: 'left',
+                  padding: '16px 18px',
+                  cursor: 'pointer'
+                }}
+              >
+                <span>
+                  <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>
+                    v{entry.version}
+                  </span>
+                  <span style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
+                    {entry.summary}
+                  </span>
+                </span>
+                <span className="row gap" style={{ gap: 8, flexShrink: 0, paddingTop: 2 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                    {entry.changes.length}
+                  </span>
+                  <i
+                    className={`ti ${isOpen ? 'ti-chevron-up' : 'ti-chevron-down'}`}
+                    style={{ color: 'var(--text-secondary)', fontSize: 16 }}
+                    aria-hidden="true"
+                  ></i>
+                </span>
+              </button>
+              {isOpen && (
+                <ul style={{ margin: 0, padding: '0 18px 16px 34px' }}>
+                  {entry.changes.map((c, i) => (
+                    <li key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                      {c}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {entry.changes.map((c, i) => (
-                <li key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
-                  {c}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

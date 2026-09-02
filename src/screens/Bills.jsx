@@ -89,7 +89,7 @@ export default function Bills({ onAddBill }) {
                         removeBill(b.id)
                       }
                     }}
-                    aria-label="Delete bill"
+                    aria-label={t('confirmDeleteBill')}
                   >
                     <i className="ti ti-trash" aria-hidden="true"></i>
                   </button>

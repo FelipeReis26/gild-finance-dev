@@ -28,7 +28,7 @@ const KEYS = {
 }
 
 const SCHEMA_VERSION = 2
-const APP_VERSION = '2.0.0'
+const APP_VERSION = '2.1.0'
 
 function load(key, fallback) {
   const raw = localStorage.getItem(key)

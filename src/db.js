@@ -882,18 +882,19 @@ export async function exportBackup() {
 export function summarizeBackup(data) {
   const issues = []
   if (!data || typeof data !== 'object') {
-    return { issues: ['This file does not look like a Gild backup.'], valid: false }
+    return { issues: ['backupNotGild'], valid: false }
   }
   const version = data.schemaVersion || 1
-  if (!data.schemaVersion) {
-    issues.push('No version tag found — this looks like an older backup and will be converted automatically.')
-  }
-  if (version > SCHEMA_VERSION) {
-    issues.push('This backup was made with a newer version of the app than this one. Some data may not restore correctly.')
-  }
   const hasAnyData = Object.values(KEYS).some((k) => data[k] !== undefined)
   if (!hasAnyData) {
-    issues.push('This file has no recognizable Gild data in it.')
+    // Nothing to restore, so notes about conversion would only confuse.
+    return { valid: false, version, exportedAt: data.exportedAt || null, appVersion: data.appVersion || null, issues: ['backupNoData'] }
+  }
+  if (!data.schemaVersion) {
+    issues.push('backupOlderVersion')
+  }
+  if (version > SCHEMA_VERSION) {
+    issues.push('backupNewerVersion')
   }
   return {
     valid: hasAnyData,

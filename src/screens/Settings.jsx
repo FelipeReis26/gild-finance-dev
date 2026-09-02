@@ -540,7 +540,7 @@ function DataScreen({ onBack, t }) {
                 <div style={{ marginBottom: 12 }}>
                   {restorePreview.summary.issues.map((issue, i) => (
                     <p key={i} className="error-text" style={{ marginTop: 0 }}>
-                      {issue}
+                      {t(issue)}
                     </p>
                   ))}
                 </div>
@@ -561,7 +561,7 @@ function DataScreen({ onBack, t }) {
             <>
               {restorePreview.summary.issues.map((issue, i) => (
                 <p key={i} className="error-text" style={{ marginTop: 0 }}>
-                  {issue}
+                  {t(issue)}
                 </p>
               ))}
               <button

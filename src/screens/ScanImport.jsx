@@ -1,139 +1,120 @@
 import { useState } from 'react'
-import { createWorker } from 'tesseract.js'
 import { useApp } from '../context/AppContext.jsx'
-import { todayLocalDate } from '../db.js'
-
-// Real on-device text recognition, no server or API key needed.
-// Runs entirely in the browser via tesseract.js, then a few rules
-// guess the amount, merchant, and category from the raw text.
-async function scanImage(file) {
-  const worker = await createWorker('eng')
-  const {
-    data: { text }
-  } = await worker.recognize(file)
-  await worker.terminate()
-  return parseReceiptText(text)
-}
-
-const NOISE_WORDS = [
-  'receipt', 'subtotal', 'total', 'tax', 'vat', 'change', 'cash', 'card',
-  'visa', 'mastercard', 'thank you', 'balance', 'tel:', 'www.', 'http',
-  'auth code', 'approved', 'terminal', 'merchant id', 'contactless'
-]
-const TOTAL_KEYWORDS = ['total', 'amount', 'amount due', 'balance due', 'paid', 'subtotal', 'grand total']
-
-function looksLikeDate(line) {
-  return /\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}/.test(line) || /\d{4}-\d{2}-\d{2}/.test(line)
-}
-
-function parseReceiptText(text) {
-  const lines = text
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
-
-  // Amount: prefer a line that explicitly says "total"/"amount"/etc, since
-  // that's far more reliable than just grabbing the biggest number on the
-  // page (which can be a phone number, loyalty points, or a card number).
-  const moneyPattern = /(\d{1,4}[.,]\d{2})/g
-  let amount = ''
-  const totalLine = lines.find((l) => TOTAL_KEYWORDS.some((k) => l.toLowerCase().includes(k)))
-  if (totalLine) {
-    const m = [...totalLine.matchAll(moneyPattern)].map((x) => parseFloat(x[1].replace(',', '.')))
-    if (m.length) amount = Math.max(...m)
-  }
-  if (!amount) {
-    const all = [...text.matchAll(moneyPattern)].map((m) => parseFloat(m[1].replace(',', '.')))
-    if (all.length) amount = Math.max(...all)
-  }
-
-  // Merchant: the longest remaining line made mostly of letters, after
-  // filtering out dates, pure numbers, and common receipt boilerplate.
-  const merchantLine = lines
-    .filter((l) => {
-      if (!/[a-zA-Z]{3,}/.test(l)) return false
-      if (/^\d/.test(l)) return false
-      if (looksLikeDate(l)) return false
-      const lower = l.toLowerCase()
-      if (NOISE_WORDS.some((w) => lower.includes(w))) return false
-      return true
-    })
-    .sort((a, b) => b.length - a.length)[0]
-
-  // Category guess from keywords in the recognized text.
-  const lower = text.toLowerCase()
-  const keywordMap = [
-    { keywords: ['netflix', 'spotify', 'disney', 'prime video', 'patreon'], categoryId: 'streaming' },
-    { keywords: ['tesco', 'supermarket', 'grocery', 'lidl', 'aldi', 'spar', 'dunnes', 'mcdonald', 'coffee'], categoryId: 'food' },
-    { keywords: ['shell', 'esso', 'circle k', 'fuel', 'petrol', 'freenow', 'taxi', 'uber', 'eflow', 'toll'], categoryId: 'fuel-insurance' },
-    { keywords: ['rent', 'landlord'], categoryId: 'rent' },
-    { keywords: ['vodafone', 'three', 'eir', 'internet', 'broadband', 'virgin media', 'apple.com'], categoryId: 'utilities' }
-  ]
-  const match = keywordMap.find((k) => k.keywords.some((word) => lower.includes(word)))
-
-  return {
-    amount,
-    merchant: merchantLine || 'Unknown merchant',
-    date: todayLocalDate(),
-    guessedCategoryId: match?.categoryId || null,
-    rawText: text.trim()
-  }
-}
+import { findImportDuplicates, getMerchantMap, rememberMerchantCategory, lookupMerchantCategory } from '../db.js'
+import { scanImages, parseReceiptText, learnFromHistory } from '../receipt.js'
 
 export default function ScanImport({ onConfirmed }) {
-  const { categories, addTransaction, t } = useApp()
+  const { categories, transactions, addTransaction, t } = useApp()
   const expenseCategories = categories.filter((c) => c.kind !== 'income' && !c.archived)
-  const [file, setFile] = useState(null)
   const [scanning, setScanning] = useState(false)
-  const [result, setResult] = useState(null)
+  const [progress, setProgress] = useState({ done: 0, total: 0 })
+  const [results, setResults] = useState([])
   const [error, setError] = useState('')
 
-  async function handleFile(e) {
-    const chosen = e.target.files?.[0]
-    if (!chosen) return
-    setFile(chosen)
-    setScanning(true)
-    setError('')
-    try {
-      const parsed = await scanImage(chosen)
-      setResult({ ...parsed, guessedCategoryId: parsed.guessedCategoryId || expenseCategories[0]?.id })
-    } catch {
-      setError(t('couldNotRead'))
-      setFile(null)
-    } finally {
-      setScanning(false)
+  function interpret(rawText, merchantMap, confidence) {
+    const parsed = parseReceiptText(rawText)
+    // What the person filed this shop under before outranks everything,
+    // including the brand table: an explicit correction is a decision.
+    const remembered = lookupMerchantCategory(merchantMap, parsed.merchant)
+    // Priority: a recognized brand is definitive; otherwise a strong history
+    // match on the merchant name; otherwise the keyword guess. History never
+    // overrides a known brand.
+    const learned = parsed.brandMatched ? null : learnFromHistory(parsed.merchant, transactions)
+    const known = learned && expenseCategories.some((c) => c.id === learned.categoryId)
+    // With no signal at all, fall back to a neutral catch-all rather than
+    // whichever category happens to be first in the list — that made every
+    // unrecognised receipt look confidently like "Rent".
+    const neutral =
+      expenseCategories.find((c) => c.id === 'other')?.id ||
+      expenseCategories.find((c) => /other|misc/i.test(c.name))?.id ||
+      expenseCategories[expenseCategories.length - 1]?.id
+    const rememberedOk = remembered && expenseCategories.some((c) => c.id === remembered)
+    const guessed = (rememberedOk && remembered) || (known && learned.categoryId) || parsed.guessedCategoryId
+    return {
+      ...parsed,
+      // Money shows its cents: "3.30", not "3.3".
+      amount: parsed.amount ? Number(parsed.amount).toFixed(2) : '',
+      id: Math.random().toString(36).slice(2, 9),
+      guessedCategoryId: guessed || neutral,
+      remembered: Boolean(rememberedOk),
+      unclear: typeof confidence === 'number' && confidence > 0 && confidence < 60,
+      learned: Boolean(known) && !rememberedOk && Boolean(guessed)
     }
   }
 
-  async function handleConfirm() {
-    if (!result) return
-    const value = parseFloat(result.amount)
-    if (isNaN(value) || value <= 0) {
+  async function handleFiles(e) {
+    const chosen = [...(e.target.files || [])]
+    if (!chosen.length) return
+    setScanning(true)
+    setError('')
+    setProgress({ done: 0, total: chosen.length })
+    try {
+      const scans = await scanImages(chosen, (done, total) => setProgress({ done, total }))
+      const merchantMap = await getMerchantMap()
+      const parsed = scans
+        .map((sc) => interpret(sc.text, merchantMap, sc.confidence))
+        .filter((r) => r.amount || r.merchant !== 'Unknown merchant')
+      if (!parsed.length) {
+        setError(t('couldNotRead'))
+      } else {
+        setResults(parsed)
+        // Tell the person which of these look like something already saved.
+        const flagged = await findImportDuplicates(
+          parsed.map((r) => ({ date: r.date, amount: parseFloat(r.amount) || 0, note: r.merchant }))
+        )
+        setResults(parsed.map((r, i) => ({ ...r, isDuplicate: flagged[i]?.isDuplicate })))
+      }
+    } catch {
+      setError(t('couldNotRead'))
+    } finally {
+      setScanning(false)
+      e.target.value = ''
+    }
+  }
+
+  const patch = (id, changes) => setResults((rs) => rs.map((r) => (r.id === id ? { ...r, ...changes } : r)))
+  const drop = (id) => setResults((rs) => rs.filter((r) => r.id !== id))
+
+  async function handleConfirmAll() {
+    const valid = results.filter((r) => {
+      const v = parseFloat(r.amount)
+      return !isNaN(v) && v > 0
+    })
+    if (!valid.length) {
       setError(t('enterValidAmount'))
       return
     }
-    await addTransaction({
-      type: 'expense',
-      amount: value,
-      categoryId: result.guessedCategoryId,
-      date: result.date,
-      note: result.merchant
-    })
-    setFile(null)
-    setResult(null)
+    for (const r of valid) {
+      await addTransaction({
+        type: 'expense',
+        amount: parseFloat(r.amount),
+        categoryId: r.guessedCategoryId,
+        date: r.date,
+        note: r.merchant
+      })
+      // Confirming is the teaching moment: whatever category this shop ends
+      // up in, that is what it means next time.
+      if (r.merchant && r.merchant !== 'Unknown merchant') {
+        await rememberMerchantCategory(r.merchant, r.guessedCategoryId)
+      }
+    }
+    setResults([])
     onConfirmed?.()
   }
 
-  if (!file) {
+  if (!scanning && !results.length && !error) {
     return (
       <div className="screen">
         <div className="card scan-drop">
           <i className="ti ti-camera scan-icon" aria-hidden="true"></i>
           <p className="section-title">{t('scanTitle')}</p>
           <p className="muted center">{t('scanSubtitle')}</p>
+          <p className="muted center" style={{ fontSize: 12 }}>
+            {t('scanMultipleHint')}
+          </p>
           <label className="primary-button file-button">
             {t('chooseScreenshot')}
-            <input type="file" accept="image/*" onChange={handleFile} hidden />
+            <input type="file" accept="image/*" multiple onChange={handleFiles} hidden />
           </label>
         </div>
       </div>
@@ -144,7 +125,32 @@ export default function ScanImport({ onConfirmed }) {
     return (
       <div className="screen">
         <div className="card scan-drop">
-          <p className="muted">{t('readingScreenshot')}</p>
+          {/* A sweeping hand: the world's own way of saying "working". */}
+          <svg className="sweep" viewBox="0 0 64 64" role="img" aria-label={t('readingScreenshot')}>
+            {Array.from({ length: 12 }, (_, i) => {
+              const a = ((i / 12) * 360 - 90) * (Math.PI / 180)
+              return (
+                <line
+                  key={i}
+                  x1={32 + Math.cos(a) * 27}
+                  y1={32 + Math.sin(a) * 27}
+                  x2={32 + Math.cos(a) * 30}
+                  y2={32 + Math.sin(a) * 30}
+                  stroke="var(--ink)"
+                  strokeOpacity="0.18"
+                  strokeWidth="1.5"
+                />
+              )
+            })}
+            <g className="sweep-hand">
+              <line x1="32" y1="32" x2="32" y2="9" stroke="var(--gold)" strokeWidth="2" strokeLinecap="round" />
+            </g>
+            <circle cx="32" cy="32" r="2.5" fill="var(--gold)" />
+          </svg>
+          <p className="muted">
+            {t('readingScreenshot')}
+            {progress.total > 1 ? ` · ${progress.done} / ${progress.total}` : ''}
+          </p>
         </div>
       </div>
     )
@@ -154,7 +160,7 @@ export default function ScanImport({ onConfirmed }) {
     return (
       <div className="screen">
         <div className="card scan-drop">
-          <p className="error-text">{error}</p>
+          <p className="error-text" role="alert">{error}</p>
           <button
             type="button"
             className="secondary-button"
@@ -170,87 +176,117 @@ export default function ScanImport({ onConfirmed }) {
 
   return (
     <div className="screen">
-      <div className="card">
-        <p className="section-title" style={{ marginBottom: 4 }}>
-          {t('confirmTransaction')}
+      <div className="row between">
+        <p className="section-title" style={{ margin: 0 }}>
+          {results.length > 1 ? t('confirmTransactions') : t('confirmTransaction')}
         </p>
-        <p className="muted" style={{ marginTop: 0, marginBottom: 18, fontSize: 13 }}>
-          {t('confirmSubtitle')}
-        </p>
-
-        <label className="field-label">{t('amount')}</label>
-        <input
-          className="amount-input"
-          type="number"
-          inputMode="decimal"
-          value={result.amount}
-          onChange={(e) => setResult({ ...result, amount: e.target.value })}
-        />
-
-        <label className="field-label">{t('merchant')}</label>
-        <input
-          type="text"
-          value={result.merchant}
-          onChange={(e) => setResult({ ...result, merchant: e.target.value })}
-        />
-
-        <label className="field-label">{t('category')}</label>
-        <select
-          value={result.guessedCategoryId || ''}
-          onChange={(e) => setResult({ ...result, guessedCategoryId: e.target.value })}
-        >
-          {expenseCategories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-
-        <label className="field-label">{t('date')}</label>
-        <input
-          type="date"
-          value={result.date}
-          onChange={(e) => setResult({ ...result, date: e.target.value })}
-        />
-
-        {result.rawText && (
-          <details style={{ marginBottom: 14 }}>
-            <summary style={{ fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
-              Raw recognized text
-            </summary>
-            <pre
-              style={{
-                fontSize: 11,
-                color: 'var(--text-secondary)',
-                whiteSpace: 'pre-wrap',
-                marginTop: 8,
-                maxHeight: 140,
-                overflowY: 'auto'
-              }}
-            >
-              {result.rawText}
-            </pre>
-          </details>
+        {results.length > 1 && (
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            {results.length} {t('receiptsFound')}
+          </p>
         )}
-
-        {error && <p className="error-text">{error}</p>}
-
-        <div className="row gap" style={{ marginTop: 6 }}>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => {
-              setFile(null)
-              setResult(null)
-            }}
-          >
-            {t('discard')}
-          </button>
-          <button type="button" className="primary-button" onClick={handleConfirm}>
-            {t('confirm')}
-          </button>
-        </div>
       </div>
+      <p className="muted" style={{ margin: '-6px 2px 0', fontSize: 13 }}>
+        {results.length > 1 ? t('confirmSubtitlePlural') : t('confirmSubtitle')}
+      </p>
+
+      {results.map((r) => (
+        <div className="card" key={r.id}>
+          <div className="row between" style={{ marginBottom: 10 }}>
+            <label className="field-label" style={{ margin: 0 }}>
+              {t('amount')}
+              {r.isDuplicate && (
+                <span style={{ color: 'var(--debit)', marginLeft: 6 }}>· {t('possibleDuplicate')}</span>
+              )}
+              {r.unclear && <span style={{ color: 'var(--debit)', marginLeft: 6 }}>· {t('unclearScan')}</span>}
+            </label>
+            <button
+              type="button"
+              className="mini-button"
+              onClick={() => drop(r.id)}
+              aria-label={t('discard')}
+            >
+              <i className="ti ti-x" aria-hidden="true"></i>
+            </button>
+          </div>
+          <input
+            className="amount-input"
+            type="number"
+            inputMode="decimal"
+            value={r.amount}
+            onChange={(e) => {
+              patch(r.id, { amount: e.target.value })
+              setError('')
+            }}
+          />
+
+          <label className="field-label">{t('merchant')}</label>
+          <input type="text" value={r.merchant} onChange={(e) => patch(r.id, { merchant: e.target.value })} />
+
+          <label className="field-label">
+            {t('category')}
+            {r.remembered && <span style={{ color: 'var(--credit)', marginLeft: 6 }}>· {t('rememberedShop')}</span>}
+            {!r.remembered && r.learned && (
+              <span style={{ color: 'var(--credit)', marginLeft: 6 }}>· {t('learnedFromHistory')}</span>
+            )}
+          </label>
+          <select value={r.guessedCategoryId || ''} onChange={(e) => patch(r.id, { guessedCategoryId: e.target.value })}>
+            {expenseCategories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+
+          <label className="field-label">{t('date')}</label>
+          <input
+            type="date"
+            value={r.date}
+            onChange={(e) => patch(r.id, { date: e.target.value })}
+            style={{ marginBottom: r.rawText ? 14 : 0 }}
+          />
+
+          {r.rawText && (
+            <details>
+              <summary style={{ fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                {t('rawRecognizedText')}
+              </summary>
+              <pre
+                style={{
+                  fontSize: 11,
+                  color: 'var(--text-secondary)',
+                  whiteSpace: 'pre-wrap',
+                  marginTop: 8,
+                  maxHeight: 140,
+                  overflowY: 'auto'
+                }}
+              >
+                {r.rawText}
+              </pre>
+            </details>
+          )}
+        </div>
+      ))}
+
+      {error && (
+        <p className="error-text" role="alert" style={{ margin: '0 4px' }}>
+          {error}
+        </p>
+      )}
+
+      <div className="row gap">
+        <button type="button" className="secondary-button" style={{ flex: 1 }} onClick={() => setResults([])}>
+          {t('discard')}
+        </button>
+        <button type="button" className="primary-button" style={{ flex: 2, width: 'auto' }} onClick={handleConfirmAll}>
+          {results.length > 1 ? `${t('confirm')} (${results.length})` : t('confirm')}
+        </button>
+      </div>
+
+      <label className="secondary-button file-button" style={{ textAlign: 'center', lineHeight: '48px' }}>
+        {t('addMoreScreenshots')}
+        <input type="file" accept="image/*" multiple onChange={handleFiles} hidden />
+      </label>
     </div>
   )
 }

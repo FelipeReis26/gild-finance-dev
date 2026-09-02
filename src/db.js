@@ -22,6 +22,7 @@ const KEYS = {
   passcode: 'ft_passcode',
   payDay: 'ft_payday',
   onboarded: 'ft_onboarded',
+  merchantMap: 'ft_merchant_map',
   a2hsDismissed: 'ft_a2hs_dismissed',
   schemaVersion: 'ft_schema_version'
 }
@@ -427,6 +428,42 @@ export async function getA2HSDismissed() {
 
 export async function dismissA2HS() {
   save(KEYS.a2hsDismissed, true)
+}
+
+// --- Learned merchants -------------------------------------------------
+// Which category the person actually filed a given shop under. Written
+// when a scanned receipt is confirmed, so the next receipt from that shop
+// is already right. Stays on the device like everything else.
+
+function merchantKey(name) {
+  return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+export async function getMerchantMap() {
+  return load(KEYS.merchantMap, {})
+}
+
+export async function rememberMerchantCategory(name, categoryId) {
+  const key = merchantKey(name)
+  if (!key || key.length < 3 || !categoryId) return
+  const map = load(KEYS.merchantMap, {})
+  map[key] = categoryId
+  save(KEYS.merchantMap, map)
+}
+
+export function lookupMerchantCategory(map, name) {
+  const key = merchantKey(name)
+  if (!key || !map) return null
+  if (map[key]) return map[key]
+  // A remembered shop still matches when OCR adds or drops a word
+  // ("Tesco" vs "Tesco Ireland").
+  const words = key.split(' ').filter((w) => w.length >= 4)
+  for (const [k, v] of Object.entries(map)) {
+    const kw = k.split(' ').filter((w) => w.length >= 4)
+    if (!kw.length || !words.length) continue
+    if (kw.every((w) => words.includes(w)) || words.every((w) => kw.includes(w))) return v
+  }
+  return null
 }
 
 // --- Categories -------------------------------------------------------
@@ -845,18 +882,19 @@ export async function exportBackup() {
 export function summarizeBackup(data) {
   const issues = []
   if (!data || typeof data !== 'object') {
-    return { issues: ['This file does not look like a Gild backup.'], valid: false }
+    return { issues: ['backupNotGild'], valid: false }
   }
   const version = data.schemaVersion || 1
-  if (!data.schemaVersion) {
-    issues.push('No version tag found — this looks like an older backup and will be converted automatically.')
-  }
-  if (version > SCHEMA_VERSION) {
-    issues.push('This backup was made with a newer version of the app than this one. Some data may not restore correctly.')
-  }
   const hasAnyData = Object.values(KEYS).some((k) => data[k] !== undefined)
   if (!hasAnyData) {
-    issues.push('This file has no recognizable Gild data in it.')
+    // Nothing to restore, so notes about conversion would only confuse.
+    return { valid: false, version, exportedAt: data.exportedAt || null, appVersion: data.appVersion || null, issues: ['backupNoData'] }
+  }
+  if (!data.schemaVersion) {
+    issues.push('backupOlderVersion')
+  }
+  if (version > SCHEMA_VERSION) {
+    issues.push('backupNewerVersion')
   }
   return {
     valid: hasAnyData,

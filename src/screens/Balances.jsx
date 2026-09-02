@@ -4,7 +4,8 @@ import { latestEntry, previousEntry, todayLocalDate } from '../db.js'
 import { formatMoney } from '../i18n.js'
 
 export default function Balances() {
-  const { balances, currency, language, addBalanceAccount, addBalanceEntry, removeBalanceAccount, t } = useApp()
+  const { balances, categories, currency, language, addBalanceAccount, addBalanceEntry, addTransaction, removeBalanceAccount, t } =
+    useApp()
   const money = (v) => formatMoney(language, currency, v)
 
   const [showForm, setShowForm] = useState(false)
@@ -13,8 +14,49 @@ export default function Balances() {
   const [openingValue, setOpeningValue] = useState('')
   const [error, setError] = useState('')
 
-  const [updatingId, setUpdatingId] = useState(null)
+  // { id, mode } — 'reading' records a new balance, 'movement' records money
+  // actually moving (a repayment in, a payment out, a savings contribution).
+  const [updating, setUpdating] = useState(null)
   const [updateValue, setUpdateValue] = useState('')
+  // Money moving is a real transaction, so it is logged as one by default.
+  const [alsoLog, setAlsoLog] = useState(true)
+  const [moveCategory, setMoveCategory] = useState('')
+
+  const expenseCats = categories.filter((c) => c.kind !== 'income' && !c.archived)
+  const incomeCats = categories.filter((c) => c.kind === 'income' && !c.archived)
+
+  // A sensible default category per account: match the account name first
+  // (an account called "Car loan" has a matching category), then the
+  // obvious one for the type, then a neutral catch-all.
+  function defaultCategoryFor(account) {
+    if (!account) return ''
+    if (account.type === 'owed') {
+      return (incomeCats.find((c) => c.id === 'other-income') || incomeCats[0])?.id || ''
+    }
+    const byName = expenseCats.find(
+      (c) => c.name.toLowerCase() === account.name.toLowerCase() || c.id === account.name.toLowerCase().replace(/\s+/g, '-')
+    )
+    if (byName) return byName.id
+    if (account.type === 'savings') {
+      const sav = expenseCats.find((c) => c.id === 'savings' || /saving/i.test(c.name))
+      if (sav) return sav.id
+    }
+    return (expenseCats.find((c) => c.id === 'other') || expenseCats[expenseCats.length - 1])?.id || ''
+  }
+
+  function beginUpdate(account, mode) {
+    setUpdating({ id: account.id, mode })
+    setUpdateValue('')
+    setAlsoLog(true)
+    setMoveCategory(defaultCategoryFor(account))
+  }
+
+  // What a movement does to the balance, per account type.
+  function projectedBalance(account, amount) {
+    const current = latestEntry(account)?.value || 0
+    if (!(amount > 0)) return current
+    return account.type === 'savings' ? current + amount : Math.max(0, current - amount)
+  }
 
   const totalDebt = balances
     .filter((a) => a.type === 'debt')
@@ -43,12 +85,37 @@ export default function Balances() {
     setShowForm(false)
   }
 
-  async function handleAddEntry(accountId) {
-    const value = parseFloat(updateValue)
-    if (isNaN(value)) return
-    await addBalanceEntry(accountId, { date: todayLocalDate(), value })
-    setUpdatingId(null)
+  async function handleAddEntry(accountId, mode) {
+    const entered = parseFloat(updateValue)
+    if (isNaN(entered)) return
+    const account = balances.find((a) => a.id === accountId)
+    const today = todayLocalDate()
+
+    if (mode === 'reading' || !account) {
+      // A reading is just the new balance: no money moved that the budget
+      // should know about (a card balance rises from new spending too).
+      await addBalanceEntry(accountId, { date: today, value: entered })
+    } else {
+      if (entered <= 0) return
+      await addBalanceEntry(accountId, { date: today, value: projectedBalance(account, entered) })
+      if (alsoLog) {
+        // Owed money coming back is income; paying a debt or putting money
+        // into savings is money leaving the pay period, so an expense.
+        const isIncome = account.type === 'owed'
+        await addTransaction({
+          type: isIncome ? 'income' : 'expense',
+          amount: entered,
+          categoryId: moveCategory || defaultCategoryFor(account),
+          date: today,
+          note: `${isIncome ? t('fromRepayment') : t('fromAccountPayment')} — ${account.name}`,
+          balanceAccountId: accountId,
+          ...(isIncome ? { owedAccountId: accountId } : {})
+        })
+      }
+    }
+    setUpdating(null)
     setUpdateValue('')
+    setAlsoLog(true)
   }
 
   return (
@@ -102,25 +169,75 @@ export default function Balances() {
                     {money(Math.abs(delta))} {t('sinceLastUpdate')}
                   </p>
                 )}
-                {updatingId === a.id ? (
-                  <div className="row gap">
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      placeholder="0.00"
-                      value={updateValue}
-                      onChange={(e) => setUpdateValue(e.target.value)}
-                      style={{ marginBottom: 0 }}
-                    />
-                    <button type="button" className="mini-button" onClick={() => handleAddEntry(a.id)}>
-                      {t('save')}
-                    </button>
-                  </div>
+                {updating?.id === a.id ? (
+                  <>
+                    <label className="field-label">
+                      {updating.mode === 'reading'
+                        ? t('currentBalance')
+                        : a.type === 'owed'
+                          ? t('amountRepaid')
+                          : a.type === 'savings'
+                            ? t('amountAdded')
+                            : t('amountPaid')}
+                    </label>
+                    <div className="row gap">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        value={updateValue}
+                        onChange={(e) => setUpdateValue(e.target.value)}
+                        style={{ marginBottom: 0 }}
+                      />
+                      <button type="button" className="mini-button" onClick={() => handleAddEntry(a.id, updating.mode)}>
+                        {t('save')}
+                      </button>
+                      <button type="button" className="mini-button" onClick={() => setUpdating(null)}>
+                        <i className="ti ti-x" aria-hidden="true"></i>
+                      </button>
+                    </div>
+                    {updating.mode === 'movement' && (
+                      <>
+                        <label className="row gap checkbox-row" style={{ margin: '10px 0 0', fontSize: 13 }}>
+                          <input type="checkbox" checked={alsoLog} onChange={(e) => setAlsoLog(e.target.checked)} />
+                          {a.type === 'owed' ? t('alsoLogAsIncome') : t('alsoLogAsExpense')}
+                        </label>
+                        {alsoLog && (
+                          <select
+                            value={moveCategory}
+                            onChange={(e) => setMoveCategory(e.target.value)}
+                            style={{ marginTop: 8, marginBottom: 0 }}
+                          >
+                            {(a.type === 'owed' ? incomeCats : expenseCats).map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        {parseFloat(updateValue) > 0 && (
+                          <p className="row-sub" style={{ margin: '8px 0 0', color: 'var(--credit)' }}>
+                            {money(latest.value)} → {money(projectedBalance(a, parseFloat(updateValue)))}{' '}
+                            {a.type === 'savings'
+                              ? t('savedLabel')
+                              : projectedBalance(a, parseFloat(updateValue)) === 0
+                                ? t('settledUp')
+                                : t('stillOwed')}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </>
                 ) : (
-                  <div className="row gap">
-                    <button type="button" className="mini-button" onClick={() => setUpdatingId(a.id)}>
-                      {a.type === 'owed' ? t('logRepayment') : t('updateBalance')}
+                  <div className="row gap" style={{ flexWrap: 'wrap' }}>
+                    <button type="button" className="mini-button" onClick={() => beginUpdate(a, 'movement')}>
+                      {a.type === 'owed' ? t('logRepayment') : a.type === 'savings' ? t('addToSavings') : t('logPayment')}
                     </button>
+                    {a.type !== 'owed' && (
+                      <button type="button" className="mini-button" onClick={() => beginUpdate(a, 'reading')}>
+                        {t('updateBalance')}
+                      </button>
+                    )}
                     <button type="button" className="mini-button" onClick={() => removeBalanceAccount(a.id)}>
                       <i className="ti ti-trash" aria-hidden="true"></i>
                     </button>

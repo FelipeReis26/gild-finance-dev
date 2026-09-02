@@ -1,9 +1,23 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
-import { todayLocalDate } from '../db.js'
+import { todayLocalDate, latestEntry } from '../db.js'
+import { formatMoney } from '../i18n.js'
 
-export default function AddTransaction({ prefill, editingId, onDone }) {
-  const { categories, currency, addTransaction, editTransaction, deleteTransactionWithUndo, t } = useApp()
+export default function AddTransaction({ prefill, editingId, onDone, onScan }) {
+  const {
+    categories,
+    currency,
+    language,
+    balances,
+    addBalanceEntry,
+    addTransaction,
+    editTransaction,
+    deleteTransactionWithUndo,
+    t
+  } = useApp()
+  // Accounts tracking money other people owe you, with something still outstanding.
+  const owedAccounts = balances.filter((a) => a.type === 'owed' && (latestEntry(a)?.value || 0) > 0)
+  const [repaymentId, setRepaymentId] = useState('')
   const [type, setType] = useState(prefill?.type || 'expense')
   const [amount, setAmount] = useState(prefill?.amount ?? '')
   const [categoryId, setCategoryId] = useState(prefill?.categoryId || '')
@@ -34,10 +48,18 @@ export default function AddTransaction({ prefill, editingId, onDone }) {
       setError(t('chooseCategory'))
       return
     }
+    const repaid = type === 'income' && repaymentId ? owedAccounts.find((a) => a.id === repaymentId) : null
     if (editingId) {
       await editTransaction(editingId, { type, amount: value, categoryId, date, note })
     } else {
-      await addTransaction({ type, amount: value, categoryId, date, note })
+      await addTransaction({ type, amount: value, categoryId, date, note, owedAccountId: repaid?.id })
+    }
+    // A repayment is one event with two records: the money arriving, and the
+    // outstanding balance coming down. Logging both here means the two can't
+    // drift apart from doing one and forgetting the other.
+    if (repaid) {
+      const outstanding = latestEntry(repaid)?.value || 0
+      await addBalanceEntry(repaid.id, { date, value: Math.max(0, outstanding - value) })
     }
     onDone?.()
   }
@@ -49,7 +71,17 @@ export default function AddTransaction({ prefill, editingId, onDone }) {
 
   return (
     <div className="screen">
-      <p className="section-title">{editingId ? t('editTransaction') : t('addTransaction')}</p>
+      <div className="row between">
+        <p className="section-title" style={{ margin: 0 }}>
+          {editingId ? t('editTransaction') : t('addTransaction')}
+        </p>
+        {!editingId && onScan && (
+          <button type="button" className="mini-button row gap" style={{ gap: 6 }} onClick={onScan}>
+            <i className="ti ti-camera" aria-hidden="true"></i>
+            {t('scanInstead')}
+          </button>
+        )}
+      </div>
 
       {/* Setting the instrument: direction, then the figure itself. */}
       <div className="card">
@@ -115,6 +147,34 @@ export default function AddTransaction({ prefill, editingId, onDone }) {
             </button>
           ))}
         </div>
+
+        {type === 'income' && !editingId && owedAccounts.length > 0 && (
+          <>
+            <label className="field-label">{t('repaymentLabel')}</label>
+            <select value={repaymentId} onChange={(e) => setRepaymentId(e.target.value)}>
+              <option value="">{t('notARepayment')}</option>
+              {owedAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name} — {formatMoney(language, currency, latestEntry(a)?.value || 0)}
+                </option>
+              ))}
+            </select>
+            {repaymentId &&
+              (() => {
+                const acc = owedAccounts.find((a) => a.id === repaymentId)
+                const outstanding = latestEntry(acc)?.value || 0
+                const value = parseFloat(amount)
+                if (!acc || isNaN(value) || value <= 0) return null
+                const left = Math.max(0, outstanding - value)
+                return (
+                  <p className="row-sub" style={{ margin: '-8px 2px 14px', color: 'var(--credit)' }}>
+                    {formatMoney(language, currency, outstanding)} → {formatMoney(language, currency, left)}{' '}
+                    {left === 0 ? t('settledUp') : t('stillOwed')}
+                  </p>
+                )
+              })()}
+          </>
+        )}
 
         <label className="field-label">{t('date')}</label>
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />

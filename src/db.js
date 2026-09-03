@@ -23,6 +23,7 @@ const KEYS = {
   payDay: 'ft_payday',
   onboarded: 'ft_onboarded',
   merchantMap: 'ft_merchant_map',
+  cash: 'ft_cash',
   a2hsDismissed: 'ft_a2hs_dismissed',
   schemaVersion: 'ft_schema_version'
 }
@@ -430,6 +431,74 @@ export async function dismissA2HS() {
   save(KEYS.a2hsDismissed, true)
 }
 
+// --- Running cash balance ---------------------------------------------
+// An anchor (a balance you know was true on a date) plus every transaction
+// since. Reconciling re-anchors it to the real figure, so drift is
+// correctable rather than permanent: the app can only be as right as what
+// has been logged, and the anchor is how you tell it the truth again.
+
+export async function getCash() {
+  const raw = load(KEYS.cash, null)
+  if (!raw) return { enabled: false, openingValue: 0, openingDate: todayLocal() }
+  return { ...raw, openingValue: fromCents(raw.openingValue || 0) }
+}
+
+export async function setCash({ enabled, openingValue, openingDate }) {
+  const record = {
+    enabled: Boolean(enabled),
+    openingValue: toCents(openingValue || 0),
+    openingDate: openingDate || todayLocal()
+  }
+  save(KEYS.cash, record)
+  return { ...record, openingValue: fromCents(record.openingValue) }
+}
+
+// A transfer moves money between the person's own accounts — from the current
+// account into Revolut, into a savings pot, into an investment balance. It is
+// recorded so the ledger stays complete and reconcilable against a statement,
+// but it is NOT spending and it is NOT income: counting it would inflate both
+// totals and misrepresent where the money actually went. Every aggregation
+// below therefore filters transfers out; only the screens that *list*
+// transactions still show them.
+export const isTransfer = (t) => t?.transfer === true
+const counts = (t) => !isTransfer(t)
+
+// Filing something under a transfer category IS declaring it a transfer, so the
+// row-level flag is derived from the category rather than trusted separately.
+// Without this, picking "Transfers" in Add transaction would create a row that
+// counts as spending under a category that means the opposite.
+function withTransferFlag(record, categories) {
+  const cat = (categories || []).find((c) => c.id === record.categoryId)
+  if (cat?.transfer) return { ...record, transfer: true }
+  if (record.transfer && !cat?.transfer) {
+    const { transfer, ...rest } = record
+    return rest
+  }
+  return record
+}
+
+// Pure: the balance implied by the anchor plus everything logged since it.
+// `transactions` are the decimal-amount records the screens already hold.
+export function runningBalance(cash, transactions) {
+  if (!cash?.enabled) return null
+  const since = (transactions || []).filter((t) => t.date >= cash.openingDate)
+  const inCents = since
+    .filter((t) => counts(t) && t.type === 'income')
+    .reduce((sum, t) => sum + toCents(t.amount), 0)
+  const outCents = since
+    .filter((t) => counts(t) && t.type === 'expense')
+    .reduce((sum, t) => sum + toCents(t.amount), 0)
+  const openingCents = toCents(cash.openingValue)
+  return {
+    balance: fromCents(openingCents + inCents - outCents),
+    opening: fromCents(openingCents),
+    income: fromCents(inCents),
+    spent: fromCents(outCents),
+    since: cash.openingDate,
+    counted: since.length
+  }
+}
+
 // --- Learned merchants -------------------------------------------------
 // Which category the person actually filed a given shop under. Written
 // when a scanned receipt is confirmed, so the next receipt from that shop
@@ -548,7 +617,7 @@ export async function getTransactions() {
 
 export async function addTransaction(tx) {
   const list = loadTransactionsRaw()
-  const record = { id: id(), ...tx, amount: toCents(tx.amount) }
+  const record = withTransferFlag({ id: id(), ...tx, amount: toCents(tx.amount) }, loadCategoriesRaw())
   list.push(record)
   save(KEYS.transactions, list)
   return toDisplayTransaction(record)
@@ -559,7 +628,8 @@ export async function addTransaction(tx) {
 // screenshot batch can be merged in safely.
 export async function importTransactions(list) {
   const existing = loadTransactionsRaw()
-  const added = list.map((t) => ({ id: id(), ...t, amount: toCents(t.amount) }))
+  const cats = loadCategoriesRaw()
+  const added = list.map((t) => withTransferFlag({ id: id(), ...t, amount: toCents(t.amount) }, cats))
   save(KEYS.transactions, [...existing, ...added])
   return added.length
 }
@@ -592,6 +662,11 @@ export async function updateTransaction(txId, updates) {
     finalUpdates.amount = toCents(finalUpdates.amount)
   }
   Object.assign(tx, finalUpdates)
+  // re-derive, so recategorising into (or out of) a transfer category keeps the
+  // flag and the category telling the same story
+  const flagged = withTransferFlag(tx, loadCategoriesRaw())
+  delete tx.transfer
+  Object.assign(tx, flagged)
   save(KEYS.transactions, list)
   return toDisplayTransaction(tx)
 }
@@ -717,11 +792,11 @@ export async function getMonthSummary(monthPrefix, payDayOverride) {
   const prevMonthPrefix = shiftMonthPrefix(periodKey, -1)
   const inPrevMonth = transactions.filter((t) => inPeriod(t.date, prevMonthPrefix, payDay))
 
-  const spentCents = inMonth.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
-  const incomeCents = inMonth.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
+  const spentCents = inMonth.filter((t) => counts(t) && t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
+  const incomeCents = inMonth.filter((t) => counts(t) && t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
 
   const catSpentInCents = (list, categoryId) =>
-    list.filter((t) => t.type === 'expense' && t.categoryId === categoryId).reduce((sum, t) => sum + t.amount, 0)
+    list.filter((t) => counts(t) && t.type === 'expense' && t.categoryId === categoryId).reduce((sum, t) => sum + t.amount, 0)
 
   // Rollover: a category can carry an underspent amount from last month
   // into this month's effective budget, one month back only.
@@ -739,7 +814,7 @@ export async function getMonthSummary(monthPrefix, payDayOverride) {
     : incomeCents
 
   const byCategory = categories
-    .filter((c) => c.kind !== 'income')
+    .filter((c) => c.kind !== 'income' && !c.transfer)
     .map((c) => {
       const catSpentCents = catSpentInCents(inMonth, c.id)
       const prevSpentCents = catSpentInCents(inPrevMonth, c.id)
@@ -780,8 +855,8 @@ export async function getRecentMonthTotals(monthPrefix, count = 3, payDayOverrid
   }
   return months.map((m) => {
     const inThisPeriod = transactions.filter((t) => inPeriod(t.date, m, payDay))
-    const totalCents = inThisPeriod.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
-    const incomeCents = inThisPeriod.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
+    const totalCents = inThisPeriod.filter((t) => counts(t) && t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
+    const incomeCents = inThisPeriod.filter((t) => counts(t) && t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
     return { month: m, total: fromCents(totalCents), income: fromCents(incomeCents) }
   })
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
-import { inPeriod } from '../db.js'
+import { inPeriod, isTransfer } from '../db.js'
 import { formatMoney, localeFor } from '../i18n.js'
 
 function groupByDay(transactions) {
@@ -110,7 +110,10 @@ export default function Transactions({ onEditTransaction, initialCategory, initi
                       <i className={`ti ${cat?.icon || 'ti-tag'}`} style={{ color: cat?.accent }} aria-hidden="true"></i>
                     </div>
                     <div style={{ minWidth: 0 }}>
-                      <p className="row-title">{cat?.name || t('uncategorized')}</p>
+                      <p className="row-title">
+                        {cat?.name || t('uncategorized')}
+                        {isTransfer(tx) && <span className="tag-muted">{t('transferTag')}</span>}
+                      </p>
                       <p className="row-sub">{tx.note || (tx.source === 'bill' ? t('billPayment') : '')}</p>
                     </div>
                   </button>

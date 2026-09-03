@@ -31,6 +31,7 @@ export function AppProvider({ children }) {
   const [language, setLanguageState] = useState('en')
   const [payDay, setPayDayState] = useState(1)
   const [monthTrend, setMonthTrend] = useState([])
+  const [cash, setCash] = useState({ enabled: false, openingValue: 0, openingDate: '' })
   const [selectedMonth, setSelectedMonth] = useState(null) // null until pay day is known
   const [ready, setReady] = useState(false)
 
@@ -38,7 +39,7 @@ export function AppProvider({ children }) {
     async (monthOverride, payDayOverride) => {
       const pd = payDayOverride ?? payDay
       const month = monthOverride || selectedMonth || db.currentPeriodKey(pd)
-      const [cats, txs, billList, sum, curr, bals, lang, trend, pdFromStore] = await Promise.all([
+      const [cats, txs, billList, sum, curr, bals, lang, trend, pdFromStore, cashRec] = await Promise.all([
         db.getCategories(),
         db.getTransactions(),
         db.getBills(),
@@ -47,7 +48,8 @@ export function AppProvider({ children }) {
         db.getBalances(),
         db.getLanguage(),
         db.getRecentMonthTotals(month, 3, pd),
-        db.getPayDay()
+        db.getPayDay(),
+        db.getCash()
       ])
       setCategories(cats)
       setTransactions(txs)
@@ -58,6 +60,7 @@ export function AppProvider({ children }) {
       setLanguageState(lang)
       setPayDayState(pdFromStore)
       setMonthTrend(trend)
+      setCash(cashRec)
       setSelectedMonth(month)
       setReady(true)
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -240,6 +243,14 @@ export function AppProvider({ children }) {
     [refresh]
   )
 
+  const changeCash = useCallback(
+    async (next) => {
+      await db.setCash(next)
+      await refresh()
+    },
+    [refresh]
+  )
+
   const changePayDay = useCallback(
     async (day) => {
       const newPayDay = await db.setPayDay(day)
@@ -294,6 +305,8 @@ export function AppProvider({ children }) {
         changePayDay,
         periodLabel,
         monthTrend,
+        cash,
+        changeCash,
         t: (key) => translate(language, key),
         selectedMonth,
         changeMonth,

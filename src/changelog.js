@@ -4,6 +4,9 @@ export const changelog = [
     version: '2.1.0',
     summary: 'New look, calmer and more honest dashboard, and a slide-out menu',
     changes: [
+      'Filing a transaction under a transfer category now marks it as a transfer automatically, and those categories no longer appear in the spending breakdown — a category meaning "this is not spending" can never show a spend figure',
+      'Transactions can now be marked as a transfer — money moving between your own accounts, like topping up Revolut from your current account or putting money into a savings pot. Transfers show in Activity with a "transfer" tag so your records stay complete and reconcile against a bank statement, but they are never counted as spending or income. Without this, importing bank data double-counts: your current account shows €260 leaving as a top-up and Revolut shows the €258.07 purchase that same money paid for',
+      'New: an optional cash balance. Tell the app what your account said on a given date and it keeps a running figure from every transaction you log after that. Because it is only as good as your logging, there is a Reconcile step: enter what your bank actually says, see exactly how much is unaccounted for, and re-anchor to the true figure. Off by default, and switching it off changes nothing else',
       'A whole new look: a watch-dial face in black and gold — the pay period reads as a power reserve of day ticks, and your top budgets as small dials',
       'Pay day can now follow a weekday rule: a fixed day of the month, the last chosen weekday (e.g. the last Friday), or the last working day of the month',
       'The diamond app icon returns, redrawn in gold line-work to match the new look, along with matching launch screens',

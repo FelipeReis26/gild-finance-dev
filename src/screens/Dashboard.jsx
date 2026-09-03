@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
 import { useSwipe } from '../useSwipe.js'
-import { formatMoney, formatMonthShort } from '../i18n.js'
-import { periodBounds, currentPeriodKey, todayLocalDate } from '../db.js'
+import { formatMoney, formatMonthShort, localeFor } from '../i18n.js'
+import { periodBounds, currentPeriodKey, todayLocalDate, runningBalance } from '../db.js'
 
 const DAY_MS = 86400000
 
 export default function Dashboard({ onAddTransaction, onSelectCategory }) {
-  const { summary, currency, language, payDay, selectedMonth, changeMonth, goToMonth, monthTrend, periodLabel, t } =
+  const { summary, currency, language, payDay, selectedMonth, changeMonth, goToMonth, monthTrend, periodLabel, cash, transactions, t } =
     useApp()
   const swipe = useSwipe({ onSwipeLeft: () => changeMonth(1), onSwipeRight: () => changeMonth(-1) })
   const [showInsights, setShowInsights] = useState(false)
@@ -221,6 +221,34 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
                 </button>
               )
             })}
+          </div>
+        )
+      })()}
+
+      {(() => {
+        // Running cash balance: an anchor plus everything logged since it.
+        const rb = runningBalance(cash, transactions)
+        if (!rb) return null
+        return (
+          <div className="card">
+            <div className="row between">
+              <span>
+                <span className="engraved" style={{ display: 'block' }}>{t('cashBalance')}</span>
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--ink-3)', marginTop: 4 }}>
+                  {money(rb.opening, 2)} + {money(rb.income, 2)} − {money(rb.spent, 2)}
+                </span>
+              </span>
+              <span style={{ fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                {money(rb.balance, 2)}
+              </span>
+            </div>
+            <p className="row-sub" style={{ margin: '10px 0 0', color: 'var(--ink-3)' }}>
+              {t('cashSince')} {new Date(rb.since + 'T00:00:00').toLocaleDateString(localeFor(language), {
+                day: 'numeric',
+                month: 'short'
+              })}{' '}
+              · {rb.counted} {t('cashCounted')}
+            </p>
           </div>
         )
       })()}

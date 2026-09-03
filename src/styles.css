@@ -998,3 +998,20 @@ input[type='date'] {
   outline-offset: -2px;
   border-radius: var(--radius);
 }
+
+/* A transfer between the person's own accounts: present in the ledger for
+   completeness, deliberately not counted as spending. Marked quietly so the
+   row reads as bookkeeping rather than as money leaving. */
+.tag-muted {
+  margin-left: 7px;
+  padding: 1px 6px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  vertical-align: 1px;
+  white-space: nowrap;
+}

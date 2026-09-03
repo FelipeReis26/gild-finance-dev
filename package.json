@@ -10,7 +10,7 @@
     "cap:add:ios": "npx cap add ios",
     "cap:add:android": "npx cap add android",
     "cap:sync": "npm run build && npx cap sync",
-    "test": "node tests/receipt.test.mjs && node tests/payrule.test.mjs"
+    "test": "node tests/receipt.test.mjs && node tests/payrule.test.mjs && node tests/transfer.test.mjs"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^8.1.1",

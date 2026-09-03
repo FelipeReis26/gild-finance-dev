@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
-import { currencyOptions, iconOptions, exportBackup, importBackup, summarizeBackup, findImportDuplicates, getPasscode, setPasscode, clearPasscode, normalizePayRule } from '../db.js'
-import { languageOptions, localeFor } from '../i18n.js'
+import { currencyOptions, iconOptions, exportBackup, importBackup, summarizeBackup, findImportDuplicates, getPasscode, setPasscode, clearPasscode, normalizePayRule, runningBalance, todayLocalDate } from '../db.js'
+import { languageOptions, localeFor, formatMoney } from '../i18n.js'
 import { changelog } from '../changelog.js'
 
 function BackButton({ onBack, label }) {
@@ -21,6 +21,7 @@ function MenuScreen({ onOpen, t }) {
   const items = [
     { key: 'currency', label: t('currency'), icon: 'ti-coin' },
     { key: 'payday', label: t('payDay'), icon: 'ti-calendar-dollar' },
+    { key: 'cash', label: t('cashBalance'), icon: 'ti-wallet' },
     { key: 'language', label: t('language'), icon: 'ti-language' },
     { key: 'categories', label: t('categoriesSettings'), icon: 'ti-tag' },
     { key: 'security', label: t('security'), icon: 'ti-lock' },
@@ -149,6 +150,112 @@ function PayDayScreen({ onBack, t }) {
           {t('payDayCurrent')}: {periodLabel}
         </p>
       </div>
+    </div>
+  )
+}
+
+function CashScreen({ onBack, t }) {
+  const { cash, changeCash, transactions, currency, language } = useApp()
+  const [opening, setOpening] = useState(String(cash.openingValue ?? ''))
+  const [openingDate, setOpeningDate] = useState(cash.openingDate || todayLocalDate())
+  const [reconcile, setReconcile] = useState('')
+  const money = (v) => formatMoney(language, currency, v, { decimals: 2 })
+  const rb = runningBalance(cash, transactions)
+
+  return (
+    <div className="screen">
+      <BackButton onBack={onBack} label={t('back')} />
+      <p className="section-title">{t('cashBalance')}</p>
+
+      <div className="card">
+        <p className="muted" style={{ marginTop: 0, marginBottom: 14, fontSize: 13 }}>
+          {t('cashNote')}
+        </p>
+        <label className="row gap checkbox-row" style={{ margin: 0, fontSize: 14 }}>
+          <input
+            type="checkbox"
+            checked={Boolean(cash.enabled)}
+            onChange={(e) =>
+              changeCash({
+                enabled: e.target.checked,
+                openingValue: parseFloat(opening) || 0,
+                openingDate
+              })
+            }
+          />
+          {t('cashShowOnDashboard')}
+        </label>
+      </div>
+
+      <div className="card">
+        <label className="field-label">{t('cashOpeningValue')}</label>
+        <input
+          type="number"
+          inputMode="decimal"
+          placeholder="0.00"
+          value={opening}
+          onChange={(e) => setOpening(e.target.value)}
+        />
+        <label className="field-label">{t('cashOpeningDate')}</label>
+        <input type="date" value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} />
+        <button
+          type="button"
+          className="primary-button"
+          onClick={() => changeCash({ enabled: cash.enabled, openingValue: parseFloat(opening) || 0, openingDate })}
+        >
+          {t('save')}
+        </button>
+      </div>
+
+      {rb && (
+        <div className="card">
+          <p className="engraved" style={{ marginBottom: 8 }}>{t('cashReconcile')}</p>
+          <p className="muted" style={{ marginTop: 0, marginBottom: 12, fontSize: 13 }}>
+            {t('cashReconcileNote')}
+          </p>
+          <p className="row-sub" style={{ margin: '0 0 12px' }}>
+            {t('cashBalance')}: <strong style={{ color: 'var(--ink)' }}>{money(rb.balance)}</strong>
+          </p>
+          <label className="field-label">{t('cashRealValue')}</label>
+          <input
+            type="number"
+            inputMode="decimal"
+            placeholder="0.00"
+            value={reconcile}
+            onChange={(e) => setReconcile(e.target.value)}
+          />
+          {reconcile !== '' && !isNaN(parseFloat(reconcile)) && (
+            <p
+              className="row-sub"
+              style={{
+                margin: '-6px 0 12px',
+                color: Math.abs(parseFloat(reconcile) - rb.balance) < 0.005 ? 'var(--credit)' : 'var(--danger-text)'
+              }}
+            >
+              {Math.abs(parseFloat(reconcile) - rb.balance) < 0.005
+                ? t('cashMatches')
+                : `${money(Math.abs(parseFloat(reconcile) - rb.balance))} ${t('cashUnaccounted')}`}
+            </p>
+          )}
+          <button
+            type="button"
+            className="secondary-button"
+            style={{ width: '100%' }}
+            disabled={reconcile === '' || isNaN(parseFloat(reconcile))}
+            onClick={() => {
+              const value = parseFloat(reconcile)
+              if (isNaN(value)) return
+              const today = todayLocalDate()
+              setOpening(String(value))
+              setOpeningDate(today)
+              setReconcile('')
+              changeCash({ enabled: true, openingValue: value, openingDate: today })
+            }}
+          >
+            {t('cashReAnchor')}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -748,6 +855,12 @@ export default function Settings({ initialView }) {
     return (
       <SubScreenSwipeWrapper onBack={back}>
         <PayDayScreen onBack={back} t={t} />
+      </SubScreenSwipeWrapper>
+    )
+  if (view === 'cash')
+    return (
+      <SubScreenSwipeWrapper onBack={back}>
+        <CashScreen onBack={back} t={t} />
       </SubScreenSwipeWrapper>
     )
   if (view === 'language')

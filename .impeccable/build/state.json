@@ -1,0 +1,102 @@
+{
+  "tool": "build-phase",
+  "version": 2,
+  "startedAt": "2026-08-31T16:28:23.890Z",
+  "comp": null,
+  "direction": "cbdfe1ec",
+  "breakpoint": null,
+  "artifact": null,
+  "phase": "comps",
+  "phases": {
+    "comps": {
+      "status": "open",
+      "openedAt": "2026-08-31T16:28:23.890Z",
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [
+        {
+          "at": "2026-08-31T16:29:27.028Z",
+          "text": "CODE-LED build: no image generation available this session (context.mjs IMAGE_TOOLS: sips only). Comp/spec/plates/hero gates do not apply. Ambition carried in the direction contract FIRST VIEWPORT + signature interaction, audited in behavior at finish review per new-work.md."
+        },
+        {
+          "at": "2026-08-31T17:25:01.664Z",
+          "text": "Direction superseded by user: pinned deep-green/gold premium fintech world (user-pinned beats the roll). Gilded Ledger rejected as AI-cliché by user; contract in index.html updated."
+        },
+        {
+          "at": "2026-08-31T17:47:18.482Z",
+          "text": "Round 2 hand: user chose Watch Dial (IMPECCABLE'S PICK) verbally in chat — decision page buttons unusable in their pane. Code-led (no image gen). 'For now' = tentative; build Dashboard for judgment from real pixels."
+        },
+        {
+          "at": "2026-08-31T18:39:17.382Z",
+          "text": "FINISH (code-led, gates n/a): finish reviewer disposition SHIP after 8/8 material fixes resolved, zero batch regressions (review + verdict pass in-session). Ceiling backlog: quarter-tick weighting, richer guilloché, rehaut line, subdial tick rings. DESIGN.md re-recorded by documenter from the shipped Watch Dial world."
+        }
+      ],
+      "gate": null,
+      "forced": null
+    },
+    "spec": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "plates": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "hero": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "sections": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "motion": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "responsive": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "review": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    }
+  },
+  "finish": null
+}

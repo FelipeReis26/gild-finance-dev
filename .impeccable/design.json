@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-31T00:00:00Z",
+  "title": "Design System: Gild — Watch Dial",
+  "extensions": {
+    "colorMeta": {
+      "gold": { "role": "primary", "displayName": "Champagne Gold", "canonical": "#C9A96A", "tonalRamp": ["#171204", "#2E2410", "#4A3A1E", "#68522B", "#8F7440", "#AC8E52", "#C9A96A", "#E3C88F", "#F0DFBB", "#F9F1DE"] },
+      "gold-light": { "role": "primary", "displayName": "Bright Champagne", "canonical": "#E3C88F", "tonalRamp": ["#1C160A", "#332815", "#524224", "#726034", "#947E48", "#BBA269", "#E3C88F", "#EDDAAF", "#F5E9CF", "#FBF5E9"] },
+      "credit": { "role": "secondary", "displayName": "Muted Sage (Money In)", "canonical": "#A9C9A4", "tonalRamp": ["#161F15", "#263524", "#3A4F38", "#50694D", "#688564", "#87A782", "#A9C9A4", "#C2D9BE", "#DCEAD9", "#EFF6EE"] },
+      "debit": { "role": "secondary", "displayName": "Warm Bronze (Money Out)", "canonical": "#D2A578", "tonalRamp": ["#221709", "#3A2814", "#573D21", "#755330", "#946A41", "#B48757", "#D2A578", "#DFBD9A", "#ECD6C0", "#F6EBDF"] },
+      "danger": { "role": "secondary", "displayName": "Coral (Over — Large/Graphic)", "canonical": "#C75546", "tonalRamp": ["#230C09", "#3C1712", "#5B241C", "#7B3227", "#9B4233", "#B14B3C", "#C75546", "#DB7264", "#E9A398", "#F5D5CF"] },
+      "danger-text": { "role": "secondary", "displayName": "Coral Lifted (Over — Small Text)", "canonical": "#DB7264", "tonalRamp": ["#26100C", "#411D16", "#622C23", "#843C30", "#A54C3E", "#C05A4A", "#DB7264", "#E5978C", "#EFBDB6", "#F8E0DC"] },
+      "bg": { "role": "neutral", "displayName": "Dial Black", "canonical": "#0E0F12", "tonalRamp": ["#0E0F12", "#15171B", "#1C1E24", "#23262D", "#33363F", "#4C505B", "#6E7380", "#989DA9", "#C3C6CE", "#E6E7EB"] },
+      "plate": { "role": "neutral", "displayName": "Plate", "canonical": "#15171B", "tonalRamp": ["#0E0F12", "#15171B", "#1C1E24", "#23262D", "#33363F", "#4C505B", "#6E7380", "#989DA9", "#C3C6CE", "#E6E7EB"] },
+      "plate-2": { "role": "neutral", "displayName": "Raised Plate", "canonical": "#1C1E24", "tonalRamp": ["#0E0F12", "#15171B", "#1C1E24", "#23262D", "#33363F", "#4C505B", "#6E7380", "#989DA9", "#C3C6CE", "#E6E7EB"] },
+      "ink": { "role": "neutral", "displayName": "Chalk Ink", "canonical": "#EDEBE4", "tonalRamp": ["#1B1A16", "#302E28", "#48453C", "#635F53", "#807B6D", "#A19C8D", "#C4C0B3", "#DBD8CE", "#EDEBE4", "#F7F6F2"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Applied Numeral", "purpose": "Cinzel 40/600 for the balance numeral at dial center; tabular-nums, gold (coral --danger when overspent). One of only two Cinzel sites." },
+      "wordmark": { "displayName": "Wordmark", "purpose": "Cinzel 600, 0.18em tracked uppercase GILD — 16px in the top bar, 22px in the drawer head. The other Cinzel site." },
+      "engraved": { "displayName": "Engraved Caps", "purpose": "10px/600, 0.24em tracked uppercase in ink-3 — dial-print grammar (LEFT TO SPEND). Labels instruments, never prose sections." },
+      "section-title": { "displayName": "Section Title", "purpose": "Hanken Grotesk 15/700, -0.01em, sentence case, full ink — prose region headings." },
+      "body": { "displayName": "Body / Row", "purpose": "Hanken Grotesk 14/500 for category names and row titles; drawer items 16/500; figures 600–700 with tabular-nums." },
+      "caption": { "displayName": "Caption / Reading", "purpose": "12–13px/500 tabular captions: dial subline, subdial figures, category spent/budget." }
+    },
+    "shadows": [
+      { "name": "card-lift", "value": "0 10px 26px rgba(0,0,0,0.35), inset 0 1px 0 rgba(237,235,228,0.03)", "purpose": "Cards: soft dark lift plus a faint top-edge catch of light." },
+      { "name": "row-lift", "value": "0 6px 16px rgba(0,0,0,0.22)", "purpose": "Category rows; subdials use the same throw at 0.25 alpha." },
+      { "name": "button-lift", "value": "0 6px 18px rgba(0,0,0,0.35)", "purpose": "The primary gold button." },
+      { "name": "inset-only", "value": "inset 0 1px 0 rgba(237,235,228,0.03)", "purpose": "Tiles, secondary buttons, list rows, segmented controls: seated flat." },
+      { "name": "drawer-throw", "value": "18px 0 44px rgba(0,0,0,0.45)", "purpose": "The slide-in drawer over a rgba(4,8,6,0.6) scrim." }
+    ],
+    "motion": [
+      { "name": "drawer-in", "value": "0.28s cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Drawer slide-in (translateX -40px + fade) with a 0.25s ease-out scrim fade. The shared decelerate curve." },
+      { "name": "press-compress", "value": "scale(0.985) on :active", "purpose": "Primary button press. The dial itself is still — a watch face, not an animation." }
+    ],
+    "breakpoints": [
+      { "name": "shell-cap", "value": "480px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single gold action per surface; tracked-caps label on solid champagne gold.",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"><path d=\"M12 5v14M5 12h14\"/></svg> Add transaction</button>",
+      "css": ".ds-btn-primary { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 54px; font-family: 'Hanken Grotesk', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; background: #C9A96A; color: #171204; border: none; border-radius: 16px; box-shadow: 0 6px 18px rgba(0,0,0,0.35); cursor: pointer; } .ds-btn-primary:active { transform: scale(0.985); } .ds-btn-primary:focus-visible { outline: 2px solid #E3C88F; outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Non-precious actions on a raised plate.",
+      "html": "<button class=\"ds-btn-secondary\">Cancel</button>",
+      "css": ".ds-btn-secondary { height: 48px; padding: 0 20px; font-family: 'Hanken Grotesk', sans-serif; font-size: 14px; font-weight: 500; background: #1C1E24; color: #EDEBE4; border: 1px solid rgba(237,235,228,0.09); border-radius: 14px; box-shadow: inset 0 1px 0 rgba(237,235,228,0.03); cursor: pointer; } .ds-btn-secondary:focus-visible { outline: 2px solid #E3C88F; outline-offset: 2px; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "The flat plate that holds grouped content (Insights charts).",
+      "html": "<div class=\"ds-card\"><p class=\"ds-card-title\">Spend trend</p><p class=\"ds-card-body\">Flat plate, hairline edge, soft dark lift.</p></div>",
+      "css": ".ds-card { background: #15171B; border: 1px solid rgba(237,235,228,0.09); border-radius: 20px; box-shadow: 0 10px 26px rgba(0,0,0,0.35), inset 0 1px 0 rgba(237,235,228,0.03); padding: 18px; } .ds-card-title { margin: 0 0 8px; font-family: 'Hanken Grotesk', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; color: #EDEBE4; } .ds-card-body { margin: 0; font-family: 'Hanken Grotesk', sans-serif; font-size: 14px; color: rgba(237,235,228,0.68); }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Raised-plate field, 16px text to avoid mobile zoom.",
+      "html": "<input class=\"ds-input\" placeholder=\"Amount\" />",
+      "css": ".ds-input { width: 100%; height: 44px; padding: 0 14px; font-family: 'Hanken Grotesk', sans-serif; font-size: 16px; background: #1C1E24; color: #EDEBE4; border: 1px solid rgba(237,235,228,0.09); border-radius: 14px; } .ds-input::placeholder { color: rgba(237,235,228,0.52); } .ds-input:focus-visible { outline: 2px solid #E3C88F; outline-offset: 2px; }"
+    },
+    {
+      "name": "Filter Chip",
+      "kind": "chip",
+      "refersTo": "chip-active",
+      "description": "Pill filter; active state is the gold active-place grant.",
+      "html": "<div style=\"display:flex;gap:8px\"><button class=\"ds-chip\">All</button><button class=\"ds-chip ds-chip-active\">This period</button></div>",
+      "css": ".ds-chip { height: 34px; padding: 0 14px; font-family: 'Hanken Grotesk', sans-serif; font-size: 12px; white-space: nowrap; background: #1C1E24; color: #EDEBE4; border: 1px solid rgba(237,235,228,0.09); border-radius: 999px; cursor: pointer; } .ds-chip-active { border-color: #C9A96A; color: #E3C88F; background: rgba(201,169,106,0.14); } .ds-chip:focus-visible { outline: 2px solid #E3C88F; outline-offset: 2px; }"
+    },
+    {
+      "name": "The Dial",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "Signature instrument: the pay period as a power reserve. Guilloché circles, chapter ring, one tick per day (past faint ink, remaining gold, today long gold-light), Cinzel gold numeral overlaid at center. role=img with a spoken summary leading with what's left.",
+      "html": "<div class=\"ds-dial-wrap\"><svg class=\"ds-dial\" viewBox=\"0 0 296 296\"><circle cx=\"148\" cy=\"148\" r=\"55\" fill=\"none\" stroke=\"#EDEBE4\" stroke-opacity=\"0.035\"/><circle cx=\"148\" cy=\"148\" r=\"88\" fill=\"none\" stroke=\"#EDEBE4\" stroke-opacity=\"0.035\"/><circle cx=\"148\" cy=\"148\" r=\"112\" fill=\"none\" stroke=\"rgba(237,235,228,0.09)\"/><line x1=\"148\" y1=\"21\" x2=\"148\" y2=\"10\" stroke=\"#C9A96A\" stroke-opacity=\"0.8\" stroke-width=\"1.5\" stroke-linecap=\"round\"/><line x1=\"275\" y1=\"148\" x2=\"286\" y2=\"148\" stroke=\"#E3C88F\" stroke-width=\"3\" stroke-linecap=\"round\"/><line x1=\"148\" y1=\"275\" x2=\"148\" y2=\"286\" stroke=\"#EDEBE4\" stroke-opacity=\"0.16\" stroke-width=\"1.5\" stroke-linecap=\"round\"/></svg><div class=\"ds-dial-center\"><p class=\"ds-engraved\">Left to spend</p><p class=\"ds-numeral\">€1,240</p><p class=\"ds-dial-sub\">12 days left · €103/day</p></div></div>",
+      "css": ".ds-dial-wrap { position: relative; width: 296px; height: 296px; margin: 0 auto; } .ds-dial { width: 100%; height: 100%; display: block; } .ds-dial-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 0 42px; pointer-events: none; } .ds-engraved { margin: 0; font-family: 'Hanken Grotesk', sans-serif; font-size: 10px; font-weight: 600; letter-spacing: 0.24em; text-transform: uppercase; color: rgba(237,235,228,0.52); } .ds-numeral { margin: 0; font-family: 'Cinzel', serif; font-size: 40px; font-weight: 600; letter-spacing: 0.01em; line-height: 1.05; color: #C9A96A; font-variant-numeric: tabular-nums; } .ds-dial-sub { margin: 0; font-family: 'Hanken Grotesk', sans-serif; font-size: 12px; font-weight: 500; color: rgba(237,235,228,0.68); font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Subdial Complication",
+      "kind": "custom",
+      "refersTo": "subdial",
+      "description": "A top budget as a chronograph subdial: rule-soft track, gold arc capped at 100% (coral --danger when over), percent numeral in --ui at center. The arc never lies past its stops; the numeral states the truth.",
+      "html": "<button class=\"ds-subdial\"><svg viewBox=\"0 0 64 64\" width=\"64\" height=\"64\"><circle cx=\"32\" cy=\"32\" r=\"26\" fill=\"none\" stroke=\"rgba(237,235,228,0.09)\" stroke-width=\"4\"/><circle cx=\"32\" cy=\"32\" r=\"26\" fill=\"none\" stroke=\"#C9A96A\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-dasharray=\"114 164\" transform=\"rotate(-90 32 32)\"/><text x=\"32\" y=\"36.5\" text-anchor=\"middle\" font-size=\"12.5\" font-weight=\"700\" fill=\"#EDEBE4\">70%</text></svg><span class=\"ds-subdial-name\">Groceries</span><span class=\"ds-subdial-fig\">€420</span></button>",
+      "css": ".ds-subdial { flex: 1; max-width: 116px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px; background: #15171B; border: 1px solid rgba(237,235,228,0.09); border-radius: 16px; box-shadow: 0 6px 16px rgba(0,0,0,0.25); cursor: pointer; color: #EDEBE4; font-family: 'Hanken Grotesk', sans-serif; } .ds-subdial-name { font-size: 11px; font-weight: 600; color: rgba(237,235,228,0.68); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-subdial-fig { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; } .ds-subdial:focus-visible { outline: 2px solid #E3C88F; outline-offset: 2px; }"
+    },
+    {
+      "name": "Category Row",
+      "kind": "custom",
+      "refersTo": "cat-row",
+      "description": "Each category on its own soft card: tinted icon chip, name, tabular spent/budget, 3px accent track. Over budget flips small text to --danger-text, the bar to --danger, and adds an alert glyph.",
+      "html": "<div class=\"ds-cat-row\"><div class=\"ds-cat-icon\"></div><div class=\"ds-cat-body\"><div class=\"ds-cat-top\"><span class=\"ds-cat-name\">Groceries</span><span class=\"ds-cat-fig\">€420 / €500</span></div><div class=\"ds-cat-track\"><div class=\"ds-cat-fill\"></div></div></div></div>",
+      "css": ".ds-cat-row { background: #15171B; border: 1px solid rgba(237,235,228,0.09); border-radius: 18px; box-shadow: 0 6px 16px rgba(0,0,0,0.22); padding: 14px 16px; display: flex; align-items: center; gap: 14px; cursor: pointer; } .ds-cat-icon { width: 42px; height: 42px; border-radius: 13px; background: rgba(210,165,120,0.14); flex-shrink: 0; } .ds-cat-body { flex: 1; min-width: 0; } .ds-cat-top { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 14px; font-family: 'Hanken Grotesk', sans-serif; } .ds-cat-name { font-weight: 500; color: #EDEBE4; } .ds-cat-fig { font-size: 13px; color: rgba(237,235,228,0.68); font-variant-numeric: tabular-nums; } .ds-cat-track { width: 100%; height: 3px; background: rgba(237,235,228,0.09); border-radius: 2px; overflow: hidden; } .ds-cat-fill { width: 84%; height: 100%; border-radius: 2px; opacity: 0.85; background: #D2A578; } .ds-cat-row:focus-visible { outline: 2px solid #E3C88F; outline-offset: -2px; }"
+    },
+    {
+      "name": "Hero-Stat Pill",
+      "kind": "custom",
+      "refersTo": "hero-stat",
+      "description": "In/out readouts under the dial: sage dot = income, bronze dot = spent.",
+      "html": "<span class=\"ds-hero-stat\"><span class=\"ds-dot\"></span><span class=\"ds-hs-label\">Income</span><span class=\"ds-hs-value\">€2,400</span></span>",
+      "css": ".ds-hero-stat { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; padding: 9px 14px; background: #15171B; border: 1px solid rgba(237,235,228,0.09); border-radius: 999px; font-family: 'Hanken Grotesk', sans-serif; } .ds-dot { width: 9px; height: 9px; border-radius: 50%; background: #A9C9A4; } .ds-hs-label { color: rgba(237,235,228,0.68); font-weight: 500; } .ds-hs-value { color: #EDEBE4; font-weight: 700; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Top Bar & Drawer Item",
+      "kind": "nav",
+      "refersTo": "drawer-item",
+      "description": "Fixed ground-colored top bar with burger + Cinzel wordmark; drawer items are 52px rows whose active state takes the gold active-place grant.",
+      "html": "<header class=\"ds-topbar\"><button class=\"ds-burger\" aria-label=\"Navigation\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"><path d=\"M4 7h16M4 12h16M4 17h10\"/></svg></button><span class=\"ds-wordmark\">Gild</span></header><button class=\"ds-drawer-item ds-drawer-item-active\">Dashboard</button>",
+      "css": ".ds-topbar { display: flex; align-items: center; gap: 6px; height: 56px; padding: 0 12px; background: #0E0F12; } .ds-burger { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: none; border: none; border-radius: 12px; color: #EDEBE4; cursor: pointer; } .ds-wordmark { font-family: 'Cinzel', serif; font-size: 16px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: #EDEBE4; } .ds-drawer-item { display: flex; align-items: center; gap: 14px; min-height: 52px; padding: 0 14px; border: none; border-radius: 14px; background: none; color: rgba(237,235,228,0.68); font-family: 'Hanken Grotesk', sans-serif; font-size: 16px; font-weight: 500; cursor: pointer; text-align: left; width: 100%; } .ds-drawer-item-active { background: rgba(201,169,106,0.12); color: #C9A96A; font-weight: 700; } .ds-drawer-item:focus-visible, .ds-burger:focus-visible { outline: 2px solid #E3C88F; outline-offset: -2px; }"
+    },
+    {
+      "name": "Disclosure",
+      "kind": "custom",
+      "refersTo": "disclosure",
+      "description": "Progressive-disclosure row (Insights, unused categories); sub variant is transparent with a dashed hairline.",
+      "html": "<button class=\"ds-disclosure\" aria-expanded=\"false\"><span>Insights</span><span>⌄</span></button>",
+      "css": ".ds-disclosure { width: 100%; display: flex; align-items: center; justify-content: space-between; min-height: 50px; padding: 0 18px; background: #15171B; border: 1px solid rgba(237,235,228,0.09); border-radius: 14px; color: #EDEBE4; font-family: 'Hanken Grotesk', sans-serif; font-size: 15px; font-weight: 600; cursor: pointer; } .ds-disclosure:focus-visible { outline: 2px solid #E3C88F; outline-offset: -2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "A Timepiece for Money",
+    "overview": "Gild is haute horlogerie, not fintech. The ground is dial black, text is chalk ink, and one champagne gold plays the role of applied metal — granted to exactly four things: the balance numeral, the remaining day ticks/arcs, the one primary action, and the active selection state. The pay period is a power reserve rendered as a 296px dial: one tick per day, spent days faint, remaining days gold, today long and bright, with the money left set at center in Cinzel gold above a days-left · per-day subline in engraved-caps dial print. Budgets are complications — chronograph subdial arcs capped at 100%, because a gauge never lies past its stops. Money movement is muted sage in, warm bronze out; coral appears only for genuinely over budget, in two calibrated shades (large/graphic vs. small text). Two faces divide strictly: Cinzel for the balance and wordmark only, Hanken Grotesk for everything else. Radial composition belongs to the instrument alone; below it the page returns to refined left-reading rows. Depth is hairlines and soft dark shadows on flat plates — no blur, no gradients, no blobs — and the only decorated surface in the world is the guilloché engine-turning inside the dial itself. This world refuses the fintech card stack, the editorial serif ledger, and the green-banking calm that preceded it; both prior worlds are dead and none of their rules apply. Only the Dashboard and the shared chrome are fully realized; Bills, Transactions, and Balances have had a money/date formatting pass, and the remaining screens inherit the tokens through back-compat aliases without a dedicated pass.",
+    "keyCharacteristics": [
+      "Dial black ground (#0E0F12), cool near-black plates, chalk ink — never pure black.",
+      "The Gold Grant: champagne gold only on the balance numeral, remaining ticks/arcs, the primary action, and the active place.",
+      "Two faces: Cinzel exclusively for the balance numeral and wordmark; Hanken Grotesk (400–800) for all UI.",
+      "Data as honest instruments: per-day dial ticks and subdial arcs capped at 100%.",
+      "Sage = money in, bronze = money out; two corals (--danger large, --danger-text small) only for genuinely over."
+    ],
+    "rules": [
+      { "name": "The Gold Grant", "body": "Gold is granted to exactly four things: the balance numeral, the remaining day ticks/arcs, the one primary action per surface, and the active selection state (drawer item, chip, focus ring). Anything else asking for gold is refused.", "section": "colors" },
+      { "name": "The Complication Rule", "body": "Data renders as honest instruments: one tick per day of the period, arcs capped at 100%. A gauge never lies past its stops — the numeral states the truth when a budget is exceeded.", "section": "components" },
+      { "name": "The Two-Face Rule", "body": "Cinzel appears in exactly two places: the balance numeral and the GILD wordmark. Everything else is Hanken Grotesk, with weight carrying hierarchy. A third Cinzel sighting is wrong.", "section": "typography" },
+      { "name": "The Engraved Caps Rule", "body": "Instrument labels are engraved caps — 10px/600 at 0.24em tracked uppercase in ink-3, the dial-print grammar. They caption instruments only; prose region headings stay sentence-case at 15/700.", "section": "typography" },
+      { "name": "The Two-Coral Rule", "body": "--danger (#C75546) is for large numerals, arcs, and fills; --danger-text (#DB7264) holds 4.5:1 for small text. Both mean genuinely over budget and nothing else.", "section": "colors" },
+      { "name": "The In/Out Rule", "body": "Sage always means money in, bronze always means money out; never swap them, and never use coral for ordinary spending.", "section": "colors" },
+      { "name": "The Radial Instrument Rule", "body": "Centering belongs to the dial, its pills, and its subdials — the instrument cluster. Everything below returns to left-reading rows; prose and headings are never centered.", "section": "layout" },
+      { "name": "The No-Glow Rule", "body": "No backdrop-filter, no gradients, no blobs. Depth is a hairline and a soft dark shadow; texture is permitted only as the guilloché inside the dial.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do grant gold only to the balance numeral, remaining ticks/arcs, the primary action, and the active place.",
+      "Do render data as instruments: one tick per day, arcs capped at 100%, the numeral stating the truth.",
+      "Do keep Cinzel to the balance and wordmark; set everything else in Hanken Grotesk with tabular-nums on money.",
+      "Do label instruments in engraved caps and prose regions in sentence case.",
+      "Do use --danger for large/graphic coral and --danger-text for small coral text, both only for genuinely over.",
+      "Do treat the Dashboard as the canonical reference when passing an inherited screen."
+    ],
+    "donts": [
+      "Don't put Cinzel anywhere but the balance numeral and the wordmark.",
+      "Don't add gold outside the four granted roles, or let a spent day tick go gold.",
+      "Don't draw an arc or fill past its gauge, and don't use --danger at small text sizes.",
+      "Don't use coral for ordinary spending or swap the sage/bronze mapping.",
+      "Don't reintroduce blur, gradients, or blobs; the glass tokens are aliases only.",
+      "Don't resurrect the dead worlds: no green plates, no editorial ledger serif, no burn-down bar."
+    ]
+  }
+}

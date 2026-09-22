@@ -1,4 +1,5 @@
 import { useApp } from '../context/AppContext.jsx'
+import { toastShell } from './Toast.jsx'
 
 export default function UndoToast() {
   const { undoState, undoDelete, dismissUndo, t, currency } = useApp()
@@ -8,26 +9,7 @@ export default function UndoToast() {
   const s = currency.symbol
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        left: 16,
-        right: 16,
-        bottom: 'calc(24px + env(safe-area-inset-bottom))',
-        maxWidth: 448,
-        margin: '0 auto',
-        background: 'rgba(24, 27, 33, 0.97)',
-        backdropFilter: 'blur(20px)',
-        border: '1px solid var(--glass-border)',
-        borderRadius: 'var(--radius-lg)',
-        boxShadow: '0 8px 28px rgba(0, 0, 0, 0.5)',
-        padding: '14px 16px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        zIndex: 20
-      }}
-    >
+    <div style={toastShell}>
       <i className="ti ti-trash" style={{ fontSize: 18, color: 'var(--text-secondary)' }} aria-hidden="true"></i>
       <p style={{ flex: 1, fontSize: 13, margin: 0, color: 'var(--text-primary)' }}>
         {t('transactionDeleted')} ({s}

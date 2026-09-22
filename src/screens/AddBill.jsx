@@ -1,15 +1,20 @@
 import { useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
 
-export default function AddBill({ onDone }) {
-  const { categories, currency, addBill, t } = useApp()
+export default function AddBill({ prefill, editingId, onDone }) {
+  const { categories, currency, addBill, updateBill, t } = useApp()
   const expenseCategories = categories.filter((c) => c.kind !== 'income' && !c.archived)
-  const [name, setName] = useState('')
-  const [amount, setAmount] = useState('')
-  const [dueDay, setDueDay] = useState('1')
-  const [categoryId, setCategoryId] = useState(expenseCategories[0]?.id || '')
+  const [name, setName] = useState(prefill?.name || '')
+  const [amount, setAmount] = useState(prefill?.amount != null ? String(prefill.amount) : '')
+  const [dueDay, setDueDay] = useState(String(prefill?.dueDay ?? 1))
+  // An edited bill keeps its own category even if that category has since been
+  // archived, so opening the form does not silently move it.
+  const [categoryId, setCategoryId] = useState(prefill?.categoryId || expenseCategories[0]?.id || '')
   const [error, setError] = useState('')
   const clear = () => setError('')
+  const current = categories.find((c) => c.id === categoryId)
+  const pickableCategories =
+    current && !expenseCategories.some((c) => c.id === current.id) ? [...expenseCategories, current] : expenseCategories
 
   async function handleSave() {
     const value = parseFloat(amount)
@@ -26,13 +31,17 @@ export default function AddBill({ onDone }) {
       setError(t('dueDayOfMonth'))
       return
     }
-    await addBill({ name, amount: value, dueDay: day, categoryId })
+    if (editingId) {
+      await updateBill(editingId, { name, amount: value, dueDay: day, categoryId })
+    } else {
+      await addBill({ name, amount: value, dueDay: day, categoryId })
+    }
     onDone?.()
   }
 
   return (
     <div className="screen">
-      <p className="section-title">{t('addBill')}</p>
+      <p className="section-title">{editingId ? t('editBill') : t('addBill')}</p>
 
       {/* Setting the instrument: what it is called, and the figure. */}
       <div className="card">
@@ -40,7 +49,7 @@ export default function AddBill({ onDone }) {
         <input
           type="text"
           placeholder={t('billNamePlaceholder')}
-          autoFocus
+          autoFocus={!editingId}
           value={name}
           onChange={(e) => {
             setName(e.target.value)
@@ -83,7 +92,7 @@ export default function AddBill({ onDone }) {
 
         <label className="field-label">{t('category')}</label>
         <div className="grid-2 category-grid" style={{ marginBottom: 0 }}>
-          {expenseCategories.map((c) => (
+          {pickableCategories.map((c) => (
             <button
               type="button"
               key={c.id}
@@ -108,7 +117,7 @@ export default function AddBill({ onDone }) {
       )}
 
       <button type="button" className="primary-button" onClick={handleSave}>
-        {t('saveBill')}
+        {editingId ? t('saveChanges') : t('saveBill')}
       </button>
     </div>
   )

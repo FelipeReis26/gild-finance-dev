@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
-import { currencyOptions, iconOptions, exportBackup, importBackup, summarizeBackup, findImportDuplicates, getPasscode, setPasscode, clearPasscode, normalizePayRule, runningBalance, todayLocalDate } from '../db.js'
+import { currencyOptions, iconOptions, exportBackup, importBackup, summarizeBackup, findImportDuplicates, getPasscode, setPasscode, clearPasscode, normalizePayRule, runningBalance, todayLocalDate, isExcludedFromTotals } from '../db.js'
 import { languageOptions, localeFor, formatMoney } from '../i18n.js'
 import { changelog } from '../changelog.js'
 
@@ -285,7 +285,10 @@ function LanguageScreen({ onBack, t }) {
 }
 
 function CategoriesScreen({ onBack, t }) {
-  const { categories, transactions, addCategory, editCategory, removeCategory, restoreCategory } = useApp()
+  const { categories, transactions, balances, addCategory, editCategory, removeCategory, restoreCategory } = useApp()
+  // Only debt accounts can be linked: the idea is "this expense reduces a debt
+  // I'm tracking", which does not map onto a savings pot or money owed to you.
+  const debtAccounts = balances.filter((a) => a.type === 'debt')
   const [newName, setNewName] = useState('')
   const [newIcon, setNewIcon] = useState(iconOptions[0])
   const [newKind, setNewKind] = useState('expense')
@@ -321,7 +324,7 @@ function CategoriesScreen({ onBack, t }) {
 
   function renderCategoryRow(c, showBudget) {
     return (
-      <div key={c.id} className="cat-row">
+      <div key={c.id} className="cat-row" style={{ alignItems: 'flex-start' }}>
         <div className="cat-icon" style={{ background: c.tint, borderColor: c.borderTint }}>
           <i className={`ti ${c.icon}`} style={{ color: c.accent, fontSize: 16 }} aria-hidden="true"></i>
         </div>
@@ -350,7 +353,51 @@ function CategoriesScreen({ onBack, t }) {
                   {t('rolloverLabel')}
                 </label>
               )}
+              {debtAccounts.length > 0 && (
+                <>
+                  <label className="field-label" style={{ marginTop: 10 }}>
+                    {t('linkedBalance')}
+                  </label>
+                  <select
+                    value={c.linkedBalanceAccountId || ''}
+                    onChange={(e) => editCategory(c.id, { linkedBalanceAccountId: e.target.value || null })}
+                    style={{ marginBottom: c.linkedBalanceAccountId ? 6 : 0 }}
+                  >
+                    <option value="">{t('linkedBalanceNone')}</option>
+                    {debtAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                  {c.linkedBalanceAccountId && (
+                    <p className="row-sub" style={{ margin: 0, color: 'var(--ink-3)', fontSize: 12 }}>
+                      {t('linkedBalanceNote')}
+                    </p>
+                  )}
+                </>
+              )}
             </>
+          )}
+
+          {/* Deliberately on income rows too: money in can be just as unreal
+              as money out (a transfer landing, a reimbursement arriving). */}
+          <label className="row gap" style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 10 }}>
+            <input
+              type="checkbox"
+              checked={isExcludedFromTotals(c)}
+              // A transfer category is excluded by what it is, so the box is
+              // locked on rather than springing back after being unticked.
+              disabled={!!c.transfer}
+              onChange={(e) => editCategory(c.id, { excludeFromTotals: e.target.checked })}
+              style={{ width: 'auto', height: 'auto', margin: 0 }}
+            />
+            {t('excludeFromTotals')}
+          </label>
+          {isExcludedFromTotals(c) && (
+            <p className="row-sub" style={{ margin: '4px 0 0', color: 'var(--ink-3)', fontSize: 12 }}>
+              {c.transfer ? t('excludeAlwaysTransfer') : t('excludeFromTotalsNote')}
+            </p>
           )}
         </div>
         <button type="button" className="mini-button" onClick={() => handleRemove(c)}>

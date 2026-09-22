@@ -10,6 +10,7 @@ import ScanImport from './screens/ScanImport.jsx'
 import Settings from './screens/Settings.jsx'
 import Balances from './screens/Balances.jsx'
 import UndoToast from './components/UndoToast.jsx'
+import NoticeToast from './components/NoticeToast.jsx'
 import Lock from './screens/Lock.jsx'
 import Onboarding from './screens/Onboarding.jsx'
 import AddToHomeScreenBanner from './screens/AddToHomeScreenBanner.jsx'
@@ -28,6 +29,7 @@ export default function App() {
   const [navStack, setNavStack] = useState(['dashboard'])
   const [overlay, setOverlay] = useState(null) // 'addTransaction' | 'addBill' | null
   const [editingTx, setEditingTx] = useState(null)
+  const [editingBill, setEditingBill] = useState(null)
   const [categoryDrillDown, setCategoryDrillDown] = useState(null)
   const [locked, setLocked] = useState(null) // null = checking, true/false after
   const [needsOnboarding, setNeedsOnboarding] = useState(null)
@@ -44,9 +46,15 @@ export default function App() {
     setOverlay('addTransaction')
   }
 
+  function openEditBill(bill) {
+    setEditingBill(bill)
+    setOverlay('addBill')
+  }
+
   function closeOverlay() {
     setOverlay(null)
     setEditingTx(null)
+    setEditingBill(null)
   }
 
   function openCategory(categoryId) {
@@ -115,7 +123,9 @@ export default function App() {
               }}
             />
           )}
-          {overlay === 'addBill' && <AddBill onDone={closeOverlay} />}
+          {overlay === 'addBill' && (
+            <AddBill prefill={editingBill} editingId={editingBill?.id} onDone={closeOverlay} />
+          )}
 
           {!overlay && tab === 'dashboard' && (
             <Dashboard onAddTransaction={() => setOverlay('addTransaction')} onSelectCategory={openCategory} />
@@ -128,7 +138,7 @@ export default function App() {
             />
           )}
           {!overlay && tab === 'bills' && (
-            <Bills onAddBill={() => setOverlay('addBill')} />
+            <Bills onAddBill={() => setOverlay('addBill')} onEditBill={openEditBill} />
           )}
           {!overlay && tab === 'scan' && <ScanImport onConfirmed={() => setTab('dashboard')} />}
           {!overlay && tab === 'settings' && <Settings initialView={settingsInitialView} />}
@@ -142,6 +152,7 @@ export default function App() {
           </button>
         )}
         <UndoToast />
+        <NoticeToast />
       </div>
     </AppProvider>
   )

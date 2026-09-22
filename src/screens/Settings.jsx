@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
-import { currencyOptions, iconOptions, exportBackup, importBackup, summarizeBackup, findImportDuplicates, getPasscode, setPasscode, clearPasscode, normalizePayRule } from '../db.js'
-import { languageOptions, localeFor } from '../i18n.js'
+import { currencyOptions, iconOptions, exportBackup, importBackup, summarizeBackup, findImportDuplicates, getPasscode, setPasscode, clearPasscode, normalizePayRule, runningBalance, todayLocalDate, isExcludedFromTotals } from '../db.js'
+import { languageOptions, localeFor, formatMoney } from '../i18n.js'
 import { changelog } from '../changelog.js'
 
 function BackButton({ onBack, label }) {
@@ -21,6 +21,7 @@ function MenuScreen({ onOpen, t }) {
   const items = [
     { key: 'currency', label: t('currency'), icon: 'ti-coin' },
     { key: 'payday', label: t('payDay'), icon: 'ti-calendar-dollar' },
+    { key: 'cash', label: t('cashBalance'), icon: 'ti-wallet' },
     { key: 'language', label: t('language'), icon: 'ti-language' },
     { key: 'categories', label: t('categoriesSettings'), icon: 'ti-tag' },
     { key: 'security', label: t('security'), icon: 'ti-lock' },
@@ -153,6 +154,112 @@ function PayDayScreen({ onBack, t }) {
   )
 }
 
+function CashScreen({ onBack, t }) {
+  const { cash, changeCash, transactions, currency, language } = useApp()
+  const [opening, setOpening] = useState(String(cash.openingValue ?? ''))
+  const [openingDate, setOpeningDate] = useState(cash.openingDate || todayLocalDate())
+  const [reconcile, setReconcile] = useState('')
+  const money = (v) => formatMoney(language, currency, v, { decimals: 2 })
+  const rb = runningBalance(cash, transactions)
+
+  return (
+    <div className="screen">
+      <BackButton onBack={onBack} label={t('back')} />
+      <p className="section-title">{t('cashBalance')}</p>
+
+      <div className="card">
+        <p className="muted" style={{ marginTop: 0, marginBottom: 14, fontSize: 13 }}>
+          {t('cashNote')}
+        </p>
+        <label className="row gap checkbox-row" style={{ margin: 0, fontSize: 14 }}>
+          <input
+            type="checkbox"
+            checked={Boolean(cash.enabled)}
+            onChange={(e) =>
+              changeCash({
+                enabled: e.target.checked,
+                openingValue: parseFloat(opening) || 0,
+                openingDate
+              })
+            }
+          />
+          {t('cashShowOnDashboard')}
+        </label>
+      </div>
+
+      <div className="card">
+        <label className="field-label">{t('cashOpeningValue')}</label>
+        <input
+          type="number"
+          inputMode="decimal"
+          placeholder="0.00"
+          value={opening}
+          onChange={(e) => setOpening(e.target.value)}
+        />
+        <label className="field-label">{t('cashOpeningDate')}</label>
+        <input type="date" value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} />
+        <button
+          type="button"
+          className="primary-button"
+          onClick={() => changeCash({ enabled: cash.enabled, openingValue: parseFloat(opening) || 0, openingDate })}
+        >
+          {t('save')}
+        </button>
+      </div>
+
+      {rb && (
+        <div className="card">
+          <p className="engraved" style={{ marginBottom: 8 }}>{t('cashReconcile')}</p>
+          <p className="muted" style={{ marginTop: 0, marginBottom: 12, fontSize: 13 }}>
+            {t('cashReconcileNote')}
+          </p>
+          <p className="row-sub" style={{ margin: '0 0 12px' }}>
+            {t('cashBalance')}: <strong style={{ color: 'var(--ink)' }}>{money(rb.balance)}</strong>
+          </p>
+          <label className="field-label">{t('cashRealValue')}</label>
+          <input
+            type="number"
+            inputMode="decimal"
+            placeholder="0.00"
+            value={reconcile}
+            onChange={(e) => setReconcile(e.target.value)}
+          />
+          {reconcile !== '' && !isNaN(parseFloat(reconcile)) && (
+            <p
+              className="row-sub"
+              style={{
+                margin: '-6px 0 12px',
+                color: Math.abs(parseFloat(reconcile) - rb.balance) < 0.005 ? 'var(--credit)' : 'var(--danger-text)'
+              }}
+            >
+              {Math.abs(parseFloat(reconcile) - rb.balance) < 0.005
+                ? t('cashMatches')
+                : `${money(Math.abs(parseFloat(reconcile) - rb.balance))} ${t('cashUnaccounted')}`}
+            </p>
+          )}
+          <button
+            type="button"
+            className="secondary-button"
+            style={{ width: '100%' }}
+            disabled={reconcile === '' || isNaN(parseFloat(reconcile))}
+            onClick={() => {
+              const value = parseFloat(reconcile)
+              if (isNaN(value)) return
+              const today = todayLocalDate()
+              setOpening(String(value))
+              setOpeningDate(today)
+              setReconcile('')
+              changeCash({ enabled: true, openingValue: value, openingDate: today })
+            }}
+          >
+            {t('cashReAnchor')}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function LanguageScreen({ onBack, t }) {
   const { language, changeLanguage } = useApp()
   return (
@@ -178,7 +285,10 @@ function LanguageScreen({ onBack, t }) {
 }
 
 function CategoriesScreen({ onBack, t }) {
-  const { categories, transactions, addCategory, editCategory, removeCategory, restoreCategory } = useApp()
+  const { categories, transactions, balances, addCategory, editCategory, removeCategory, restoreCategory } = useApp()
+  // Only debt accounts can be linked: the idea is "this expense reduces a debt
+  // I'm tracking", which does not map onto a savings pot or money owed to you.
+  const debtAccounts = balances.filter((a) => a.type === 'debt')
   const [newName, setNewName] = useState('')
   const [newIcon, setNewIcon] = useState(iconOptions[0])
   const [newKind, setNewKind] = useState('expense')
@@ -214,7 +324,7 @@ function CategoriesScreen({ onBack, t }) {
 
   function renderCategoryRow(c, showBudget) {
     return (
-      <div key={c.id} className="cat-row">
+      <div key={c.id} className="cat-row" style={{ alignItems: 'flex-start' }}>
         <div className="cat-icon" style={{ background: c.tint, borderColor: c.borderTint }}>
           <i className={`ti ${c.icon}`} style={{ color: c.accent, fontSize: 16 }} aria-hidden="true"></i>
         </div>
@@ -243,7 +353,51 @@ function CategoriesScreen({ onBack, t }) {
                   {t('rolloverLabel')}
                 </label>
               )}
+              {debtAccounts.length > 0 && (
+                <>
+                  <label className="field-label" style={{ marginTop: 10 }}>
+                    {t('linkedBalance')}
+                  </label>
+                  <select
+                    value={c.linkedBalanceAccountId || ''}
+                    onChange={(e) => editCategory(c.id, { linkedBalanceAccountId: e.target.value || null })}
+                    style={{ marginBottom: c.linkedBalanceAccountId ? 6 : 0 }}
+                  >
+                    <option value="">{t('linkedBalanceNone')}</option>
+                    {debtAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                  {c.linkedBalanceAccountId && (
+                    <p className="row-sub" style={{ margin: 0, color: 'var(--ink-3)', fontSize: 12 }}>
+                      {t('linkedBalanceNote')}
+                    </p>
+                  )}
+                </>
+              )}
             </>
+          )}
+
+          {/* Deliberately on income rows too: money in can be just as unreal
+              as money out (a transfer landing, a reimbursement arriving). */}
+          <label className="row gap" style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 10 }}>
+            <input
+              type="checkbox"
+              checked={isExcludedFromTotals(c)}
+              // A transfer category is excluded by what it is, so the box is
+              // locked on rather than springing back after being unticked.
+              disabled={!!c.transfer}
+              onChange={(e) => editCategory(c.id, { excludeFromTotals: e.target.checked })}
+              style={{ width: 'auto', height: 'auto', margin: 0 }}
+            />
+            {t('excludeFromTotals')}
+          </label>
+          {isExcludedFromTotals(c) && (
+            <p className="row-sub" style={{ margin: '4px 0 0', color: 'var(--ink-3)', fontSize: 12 }}>
+              {c.transfer ? t('excludeAlwaysTransfer') : t('excludeFromTotalsNote')}
+            </p>
           )}
         </div>
         <button type="button" className="mini-button" onClick={() => handleRemove(c)}>
@@ -643,26 +797,67 @@ function DataScreen({ onBack, t }) {
 }
 
 function AboutScreen({ onBack, t }) {
+  // The history is long, so each release is collapsed to its version and
+  // one-line summary; tapping one opens what actually changed in it.
+  const [openVersion, setOpenVersion] = useState(changelog[0]?.version || null)
   return (
     <div className="screen">
       <BackButton onBack={onBack} label={t('back')} />
       <p className="section-title">{t('versionHistory')}</p>
       <div className="stack">
-        {changelog.map((entry) => (
-          <div key={entry.version} className="card">
-            <div className="row between" style={{ marginBottom: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>v{entry.version}</span>
-              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{entry.summary}</span>
+        {changelog.map((entry) => {
+          const isOpen = openVersion === entry.version
+          return (
+            <div key={entry.version} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => setOpenVersion(isOpen ? null : entry.version)}
+                aria-expanded={isOpen}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  background: 'none',
+                  border: 'none',
+                  color: 'inherit',
+                  textAlign: 'left',
+                  padding: '16px 18px',
+                  cursor: 'pointer'
+                }}
+              >
+                <span>
+                  <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>
+                    v{entry.version}
+                  </span>
+                  <span style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
+                    {entry.summary}
+                  </span>
+                </span>
+                <span className="row gap" style={{ gap: 8, flexShrink: 0, paddingTop: 2 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                    {entry.changes.length}
+                  </span>
+                  <i
+                    className={`ti ${isOpen ? 'ti-chevron-up' : 'ti-chevron-down'}`}
+                    style={{ color: 'var(--text-secondary)', fontSize: 16 }}
+                    aria-hidden="true"
+                  ></i>
+                </span>
+              </button>
+              {isOpen && (
+                <ul style={{ margin: 0, padding: '0 18px 16px 34px' }}>
+                  {entry.changes.map((c, i) => (
+                    <li key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                      {c}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {entry.changes.map((c, i) => (
-                <li key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
-                  {c}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
@@ -707,6 +902,12 @@ export default function Settings({ initialView }) {
     return (
       <SubScreenSwipeWrapper onBack={back}>
         <PayDayScreen onBack={back} t={t} />
+      </SubScreenSwipeWrapper>
+    )
+  if (view === 'cash')
+    return (
+      <SubScreenSwipeWrapper onBack={back}>
+        <CashScreen onBack={back} t={t} />
       </SubScreenSwipeWrapper>
     )
   if (view === 'language')

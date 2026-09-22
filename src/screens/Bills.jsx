@@ -2,7 +2,7 @@ import { useApp } from '../context/AppContext.jsx'
 import { billDateWithinPeriod } from '../db.js'
 import { formatMoney, localeFor } from '../i18n.js'
 
-export default function Bills({ onAddBill }) {
+export default function Bills({ onAddBill, onEditBill }) {
   const { bills, categories, currency, language, selectedMonth, changeMonth, payDay, payBill, unpayBill, removeBill, periodLabel, t } =
     useApp()
   // Bills carry exact amounts (a €15.99 subscription must not read €16).
@@ -52,7 +52,12 @@ export default function Bills({ onAddBill }) {
           const paid = Boolean(payment)
           return (
             <div key={b.id} className="row between list-row">
-              <div className="row gap">
+              <button
+                type="button"
+                className="row gap"
+                style={{ flex: 1, border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer', padding: 0, minWidth: 0 }}
+                onClick={() => onEditBill?.(b)}
+              >
                 <div className="icon-badge" style={{ background: cat?.tint, borderColor: cat?.borderTint }}>
                   <i
                     className={`ti ${cat?.icon || 'ti-file-invoice'}`}
@@ -60,7 +65,7 @@ export default function Bills({ onAddBill }) {
                     aria-hidden="true"
                   ></i>
                 </div>
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <p className="row-title">{b.name}</p>
                   <p className="row-sub">
                     {paid
@@ -68,7 +73,7 @@ export default function Bills({ onAddBill }) {
                       : `${t('dueThe')} ${shortDate(billDateWithinPeriod(selectedMonth, payDay, b.dueDay))}`}
                   </p>
                 </div>
-              </div>
+              </button>
               <div className="col-right">
                 <p className="row-amount">{money(b.amount)}</p>
                 <div className="row gap">
@@ -89,7 +94,7 @@ export default function Bills({ onAddBill }) {
                         removeBill(b.id)
                       }
                     }}
-                    aria-label="Delete bill"
+                    aria-label={t('confirmDeleteBill')}
                   >
                     <i className="ti ti-trash" aria-hidden="true"></i>
                   </button>

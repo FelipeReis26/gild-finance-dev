@@ -160,7 +160,11 @@ export default function Balances() {
               </div>
               <div className="cat-body">
                 <div className="cat-top">
-                  <span className="cat-name">{a.name}</span>
+                  <span className="cat-name">
+                    {a.name}
+                    {/* the figure came from a linked transaction, not a reading someone typed */}
+                    {latest?.auto && <span className="tag-muted">{t('autoTag')}</span>}
+                  </span>
                   <span className="cat-figures">{money(latest.value)}</span>
                 </div>
                 {prev && (

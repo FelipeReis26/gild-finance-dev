@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import * as db from '../db.js'
-import { t as translate } from '../i18n.js'
+import { formatMoney, t as translate } from '../i18n.js'
 
 const AppContext = createContext(null)
 
@@ -31,14 +31,29 @@ export function AppProvider({ children }) {
   const [language, setLanguageState] = useState('en')
   const [payDay, setPayDayState] = useState(1)
   const [monthTrend, setMonthTrend] = useState([])
+  const [cash, setCash] = useState({ enabled: false, openingValue: 0, openingDate: '' })
   const [selectedMonth, setSelectedMonth] = useState(null) // null until pay day is known
   const [ready, setReady] = useState(false)
+  // A one-off confirmation for something the app did on its own — currently
+  // only an auto-linked balance being brought down. Separate from undoState
+  // because there is nothing to undo, it just should not happen invisibly.
+  const [notice, setNotice] = useState(null) // { text } | null
+  const noticeTimer = useRef(null)
+  const showNotice = useCallback((text) => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current)
+    setNotice({ text })
+    noticeTimer.current = setTimeout(() => setNotice(null), 5000)
+  }, [])
+  const dismissNotice = useCallback(() => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current)
+    setNotice(null)
+  }, [])
 
   const refresh = useCallback(
     async (monthOverride, payDayOverride) => {
       const pd = payDayOverride ?? payDay
       const month = monthOverride || selectedMonth || db.currentPeriodKey(pd)
-      const [cats, txs, billList, sum, curr, bals, lang, trend, pdFromStore] = await Promise.all([
+      const [cats, txs, billList, sum, curr, bals, lang, trend, pdFromStore, cashRec] = await Promise.all([
         db.getCategories(),
         db.getTransactions(),
         db.getBills(),
@@ -47,7 +62,8 @@ export function AppProvider({ children }) {
         db.getBalances(),
         db.getLanguage(),
         db.getRecentMonthTotals(month, 3, pd),
-        db.getPayDay()
+        db.getPayDay(),
+        db.getCash()
       ])
       setCategories(cats)
       setTransactions(txs)
@@ -58,6 +74,7 @@ export function AppProvider({ children }) {
       setLanguageState(lang)
       setPayDayState(pdFromStore)
       setMonthTrend(trend)
+      setCash(cashRec)
       setSelectedMonth(month)
       setReady(true)
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -88,20 +105,35 @@ export function AppProvider({ children }) {
     refresh(monthKey)
   }
 
+  const announceAutoBalance = useCallback(
+    (saved) => {
+      const fx = saved?._autoBalance
+      if (!fx) return
+      showNotice(
+        translate(language, 'autoBalanceUpdated')
+          .replace('{name}', fx.accountName)
+          .replace('{value}', formatMoney(language, currency, fx.value, { decimals: 2 }))
+      )
+    },
+    [language, currency, showNotice]
+  )
+
   const addTransaction = useCallback(
     async (tx) => {
-      await db.addTransaction(tx)
+      const saved = await db.addTransaction(tx)
       await refresh()
+      announceAutoBalance(saved)
     },
-    [refresh]
+    [refresh, announceAutoBalance]
   )
 
   const editTransaction = useCallback(
     async (txId, updates) => {
-      await db.updateTransaction(txId, updates)
+      const saved = await db.updateTransaction(txId, updates)
       await refresh()
+      announceAutoBalance(saved)
     },
-    [refresh]
+    [refresh, announceAutoBalance]
   )
 
   const removeTransaction = useCallback(
@@ -115,40 +147,44 @@ export function AppProvider({ children }) {
   // Delete-with-undo: the delete happens immediately, but the deleted
   // transaction's data is kept around for a few seconds so it can be
   // put back exactly as it was if the person taps Undo.
-  const [undoState, setUndoState] = useState(null) // { tx, timerId } | null
+  //
+  // The timer lives in a ref and every mutation happens outside the state
+  // updaters on purpose. React invokes updaters twice in development, so a
+  // db call inside one ran twice: Undo restored the transaction twice over,
+  // and once a category could auto-adjust a balance it applied the payment
+  // twice too.
+  const [undoState, setUndoState] = useState(null) // { tx } | null
+  const undoTimer = useRef(null)
 
   const deleteTransactionWithUndo = useCallback(
     async (txId) => {
       const txToDelete = transactions.find((t) => t.id === txId)
       await db.deleteTransaction(txId)
       await refresh()
-      if (txToDelete) {
-        setUndoState((prev) => {
-          if (prev?.timerId) clearTimeout(prev.timerId)
-          const timerId = setTimeout(() => setUndoState(null), 6000)
-          return { tx: txToDelete, timerId }
-        })
-      }
+      if (!txToDelete) return
+      if (undoTimer.current) clearTimeout(undoTimer.current)
+      setUndoState({ tx: txToDelete })
+      undoTimer.current = setTimeout(() => setUndoState(null), 6000)
     },
     [refresh, transactions]
   )
 
   const undoDelete = useCallback(async () => {
-    setUndoState((prev) => {
-      if (prev?.timerId) clearTimeout(prev.timerId)
-      if (prev?.tx) {
-        const { id, ...rest } = prev.tx
-        db.addTransaction(rest).then(() => refresh())
-      }
-      return null
-    })
-  }, [refresh])
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    const pending = undoState?.tx
+    setUndoState(null)
+    if (!pending) return
+    // Drop the id and the auto-link bookkeeping: the restored row is a new
+    // record and earns a fresh balance entry rather than claiming the old one.
+    const { id, autoBalanceAccountId, autoBalanceEntryId, ...rest } = pending
+    const saved = await db.addTransaction(rest)
+    await refresh()
+    announceAutoBalance(saved)
+  }, [undoState, refresh, announceAutoBalance])
 
   const dismissUndo = useCallback(() => {
-    setUndoState((prev) => {
-      if (prev?.timerId) clearTimeout(prev.timerId)
-      return null
-    })
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    setUndoState(null)
   }, [])
 
   const importTransactions = useCallback(
@@ -163,6 +199,14 @@ export function AppProvider({ children }) {
   const addBill = useCallback(
     async (bill) => {
       await db.addBill(bill)
+      await refresh()
+    },
+    [refresh]
+  )
+
+  const updateBill = useCallback(
+    async (billId, updates) => {
+      await db.updateBill(billId, updates)
       await refresh()
     },
     [refresh]
@@ -240,6 +284,14 @@ export function AppProvider({ children }) {
     [refresh]
   )
 
+  const changeCash = useCallback(
+    async (next) => {
+      await db.setCash(next)
+      await refresh()
+    },
+    [refresh]
+  )
+
   const changePayDay = useCallback(
     async (day) => {
       const newPayDay = await db.setPayDay(day)
@@ -294,6 +346,8 @@ export function AppProvider({ children }) {
         changePayDay,
         periodLabel,
         monthTrend,
+        cash,
+        changeCash,
         t: (key) => translate(language, key),
         selectedMonth,
         changeMonth,
@@ -305,8 +359,11 @@ export function AppProvider({ children }) {
         undoState,
         undoDelete,
         dismissUndo,
+        notice,
+        dismissNotice,
         importTransactions,
         addBill,
+        updateBill,
         payBill,
         unpayBill,
         removeBill,

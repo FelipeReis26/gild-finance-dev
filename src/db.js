@@ -23,12 +23,13 @@ const KEYS = {
   payDay: 'ft_payday',
   onboarded: 'ft_onboarded',
   merchantMap: 'ft_merchant_map',
+  cash: 'ft_cash',
   a2hsDismissed: 'ft_a2hs_dismissed',
   schemaVersion: 'ft_schema_version'
 }
 
 const SCHEMA_VERSION = 2
-const APP_VERSION = '2.0.0'
+const APP_VERSION = '2.1.0'
 
 function load(key, fallback) {
   const raw = localStorage.getItem(key)
@@ -430,6 +431,88 @@ export async function dismissA2HS() {
   save(KEYS.a2hsDismissed, true)
 }
 
+// --- Running cash balance ---------------------------------------------
+// An anchor (a balance you know was true on a date) plus every transaction
+// since. Reconciling re-anchors it to the real figure, so drift is
+// correctable rather than permanent: the app can only be as right as what
+// has been logged, and the anchor is how you tell it the truth again.
+
+export async function getCash() {
+  const raw = load(KEYS.cash, null)
+  if (!raw) return { enabled: false, openingValue: 0, openingDate: todayLocal() }
+  return { ...raw, openingValue: fromCents(raw.openingValue || 0) }
+}
+
+export async function setCash({ enabled, openingValue, openingDate }) {
+  const record = {
+    enabled: Boolean(enabled),
+    openingValue: toCents(openingValue || 0),
+    openingDate: openingDate || todayLocal()
+  }
+  save(KEYS.cash, record)
+  return { ...record, openingValue: fromCents(record.openingValue) }
+}
+
+// A transfer moves money between the person's own accounts — from the current
+// account into Revolut, into a savings pot, into an investment balance. It is
+// recorded so the ledger stays complete and reconcilable against a statement,
+// but it is NOT spending and it is NOT income: counting it would inflate both
+// totals and misrepresent where the money actually went. Every aggregation
+// below therefore filters transfers out; only the screens that *list*
+// transactions still show them.
+export const isTransfer = (t) => t?.transfer === true
+const counts = (t) => !isTransfer(t)
+
+// A category can be kept out of the headline figures without being hidden.
+// "Transfers" moves money between his own accounts; a reimbursement category
+// is spending someone else ultimately pays back. Either way the transactions
+// stay completely normal in Activity — editable, searchable, deletable — they
+// just should not read as spending or income.
+//
+// Driven by the CATEGORY rather than the stored row, so unticking the box puts
+// old transactions back into the totals on the next refresh with nothing
+// rewritten. A transfer category implies exclusion: it is the same idea with a
+// narrower name.
+export const isExcludedFromTotals = (cat) => cat?.excludeFromTotals === true || cat?.transfer === true
+const excludedCategoryIds = (categories) =>
+  new Set((categories || []).filter(isExcludedFromTotals).map((c) => c.id))
+
+// Filing something under a transfer category IS declaring it a transfer, so the
+// row-level flag is derived from the category rather than trusted separately.
+// Without this, picking "Transfers" in Add transaction would create a row that
+// counts as spending under a category that means the opposite.
+function withTransferFlag(record, categories) {
+  const cat = (categories || []).find((c) => c.id === record.categoryId)
+  if (cat?.transfer) return { ...record, transfer: true }
+  if (record.transfer && !cat?.transfer) {
+    const { transfer, ...rest } = record
+    return rest
+  }
+  return record
+}
+
+// Pure: the balance implied by the anchor plus everything logged since it.
+// `transactions` are the decimal-amount records the screens already hold.
+export function runningBalance(cash, transactions) {
+  if (!cash?.enabled) return null
+  const since = (transactions || []).filter((t) => t.date >= cash.openingDate)
+  const inCents = since
+    .filter((t) => counts(t) && t.type === 'income')
+    .reduce((sum, t) => sum + toCents(t.amount), 0)
+  const outCents = since
+    .filter((t) => counts(t) && t.type === 'expense')
+    .reduce((sum, t) => sum + toCents(t.amount), 0)
+  const openingCents = toCents(cash.openingValue)
+  return {
+    balance: fromCents(openingCents + inCents - outCents),
+    opening: fromCents(openingCents),
+    income: fromCents(inCents),
+    spent: fromCents(outCents),
+    since: cash.openingDate,
+    counted: since.length
+  }
+}
+
 // --- Learned merchants -------------------------------------------------
 // Which category the person actually filed a given shop under. Written
 // when a scanned receipt is confirmed, so the next receipt from that shop
@@ -546,12 +629,68 @@ export async function getTransactions() {
   return list.map(toDisplayTransaction).sort((a, b) => new Date(b.date) - new Date(a.date))
 }
 
+// --- Category -> balance auto-link --------------------------------------
+// Some recurring expenses are really debt repayments: the Humm Group "TV
+// repayment" line is a payment against a debt, not ordinary spending. A
+// category can name one debt account, set once in Settings, and every expense
+// filed under it then writes the matching balance entry by itself instead of
+// needing a second manual visit to Balances.
+//
+// The entry created this way carries its own id, and the transaction stores
+// that id. Reversing on delete or edit is then an exact lookup. The obvious
+// alternative — find the entry by date and check its value is "previous minus
+// this amount" — is ambiguous exactly when it matters most: two entries
+// sharing a date is the normal case here (an auto entry landing the same day
+// as a manual reading), and a wrong guess corrupts a balance rather than
+// merely leaving it stale.
+//
+// Deliberately NOT wired into importTransactions: a statement import would
+// rewrite a debt's history in bulk with no way to see what it did.
+
+function applyAutoBalance(record) {
+  if (record.type !== 'expense') return { record }
+  const cat = loadCategoriesRaw().find((c) => c.id === record.categoryId)
+  if (!cat?.linkedBalanceAccountId) return { record }
+  const accounts = loadBalancesRaw()
+  const account = accounts.find((a) => a.id === cat.linkedBalanceAccountId)
+  // Account deleted, or no longer a debt: skip silently. The transaction is
+  // still a perfectly good transaction.
+  if (!account || account.type !== 'debt') return { record }
+  const latest = latestEntry(account)
+  const entry = { id: id(), date: record.date, value: (latest?.value ?? 0) - record.amount, auto: true }
+  account.entries.push(entry)
+  save(KEYS.balances, accounts)
+  return {
+    record: { ...record, autoBalanceAccountId: account.id, autoBalanceEntryId: entry.id },
+    effect: { accountId: account.id, accountName: account.name, value: fromCents(entry.value) }
+  }
+}
+
+// Removes the entry a transaction created, if it is still there. Returns true
+// when something was removed, so callers can tell "nothing to undo" from
+// "undone".
+function reverseAutoBalance(record) {
+  if (!record?.autoBalanceEntryId) return false
+  const accounts = loadBalancesRaw()
+  const account = accounts.find((a) => a.id === record.autoBalanceAccountId)
+  if (!account) return false
+  const before = account.entries.length
+  account.entries = account.entries.filter((e) => e.id !== record.autoBalanceEntryId)
+  if (account.entries.length === before) return false
+  save(KEYS.balances, accounts)
+  return true
+}
+
 export async function addTransaction(tx) {
   const list = loadTransactionsRaw()
-  const record = { id: id(), ...tx, amount: toCents(tx.amount) }
+  const { record, effect } = applyAutoBalance(
+    withTransferFlag({ id: id(), ...tx, amount: toCents(tx.amount) }, loadCategoriesRaw())
+  )
   list.push(record)
   save(KEYS.transactions, list)
-  return toDisplayTransaction(record)
+  // `_autoBalance` is on the returned object only, never stored — it exists so
+  // the screen that saved can confirm the balance it quietly changed.
+  return effect ? { ...toDisplayTransaction(record), _autoBalance: effect } : toDisplayTransaction(record)
 }
 
 // Bulk import: adds a batch of transactions on top of what's already
@@ -559,7 +698,8 @@ export async function addTransaction(tx) {
 // screenshot batch can be merged in safely.
 export async function importTransactions(list) {
   const existing = loadTransactionsRaw()
-  const added = list.map((t) => ({ id: id(), ...t, amount: toCents(t.amount) }))
+  const cats = loadCategoriesRaw()
+  const added = list.map((t) => withTransferFlag({ id: id(), ...t, amount: toCents(t.amount) }, cats))
   save(KEYS.transactions, [...existing, ...added])
   return added.length
 }
@@ -591,13 +731,31 @@ export async function updateTransaction(txId, updates) {
   if ('amount' in finalUpdates && finalUpdates.amount != null) {
     finalUpdates.amount = toCents(finalUpdates.amount)
   }
+  const touchesAutoLink = 'amount' in finalUpdates || 'categoryId' in finalUpdates
+  if (touchesAutoLink) reverseAutoBalance(tx)
   Object.assign(tx, finalUpdates)
+  // re-derive, so recategorising into (or out of) a transfer category keeps the
+  // flag and the category telling the same story
+  const flagged = withTransferFlag(tx, loadCategoriesRaw())
+  delete tx.transfer
+  Object.assign(tx, flagged)
+  let effect
+  if (touchesAutoLink) {
+    // The old entry is gone; work out the new one from scratch so an edited
+    // amount or a move to a different linked category both land correctly.
+    delete tx.autoBalanceAccountId
+    delete tx.autoBalanceEntryId
+    const applied = applyAutoBalance(tx)
+    Object.assign(tx, applied.record)
+    effect = applied.effect
+  }
   save(KEYS.transactions, list)
-  return toDisplayTransaction(tx)
+  return effect ? { ...toDisplayTransaction(tx), _autoBalance: effect } : toDisplayTransaction(tx)
 }
 
 export async function deleteTransaction(txId) {
   const list = loadTransactionsRaw()
+  reverseAutoBalance(list.find((t) => t.id === txId))
   save(
     KEYS.transactions,
     list.filter((t) => t.id !== txId)
@@ -656,6 +814,28 @@ export async function addBill({ name, amount, categoryId, dueDay }) {
   list.push(record)
   save(KEYS.bills, list)
   return toDisplayBill(record)
+}
+
+// Edits a bill in place. Deliberately does not touch `payments`, nor any
+// transaction a past payment already created: those copied the amount and
+// category at the moment they were marked paid and are frozen historical
+// records, the same way renaming a category does not rewrite the name inside
+// old transactions. Changing a bill today only affects the next time it is
+// marked paid.
+export async function updateBill(billId, updates) {
+  const bills = loadBillsRaw()
+  const bill = bills.find((b) => b.id === billId)
+  if (!bill) return null
+  const finalUpdates = { ...updates }
+  if ('amount' in finalUpdates && finalUpdates.amount != null) {
+    finalUpdates.amount = toCents(finalUpdates.amount)
+  }
+  if ('dueDay' in finalUpdates) {
+    finalUpdates.dueDay = Math.min(31, Math.max(1, parseInt(finalUpdates.dueDay, 10) || 1))
+  }
+  Object.assign(bill, finalUpdates)
+  save(KEYS.bills, bills)
+  return toDisplayBill(bill)
 }
 
 export async function deleteBill(billId) {
@@ -717,11 +897,14 @@ export async function getMonthSummary(monthPrefix, payDayOverride) {
   const prevMonthPrefix = shiftMonthPrefix(periodKey, -1)
   const inPrevMonth = transactions.filter((t) => inPeriod(t.date, prevMonthPrefix, payDay))
 
-  const spentCents = inMonth.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
-  const incomeCents = inMonth.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
+  const excluded = excludedCategoryIds(categories)
+  const counted = (t) => !excluded.has(t.categoryId)
+
+  const spentCents = inMonth.filter((t) => counted(t) && t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
+  const incomeCents = inMonth.filter((t) => counted(t) && t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
 
   const catSpentInCents = (list, categoryId) =>
-    list.filter((t) => t.type === 'expense' && t.categoryId === categoryId).reduce((sum, t) => sum + t.amount, 0)
+    list.filter((t) => counted(t) && t.type === 'expense' && t.categoryId === categoryId).reduce((sum, t) => sum + t.amount, 0)
 
   // Rollover: a category can carry an underspent amount from last month
   // into this month's effective budget, one month back only.
@@ -733,13 +916,17 @@ export async function getMonthSummary(monthPrefix, payDayOverride) {
     return c.monthlyBudget + leftover
   }
 
-  const budgeted = categories.filter((c) => c.kind !== 'income' && c.monthlyBudget != null)
+  // An excluded category's budget has nothing to be spent against, so it must
+  // not inflate the overall budget figure either.
+  const budgeted = categories.filter((c) => c.kind !== 'income' && c.monthlyBudget != null && !excluded.has(c.id))
   const budgetCents = budgeted.length
     ? budgeted.reduce((sum, c) => sum + effectiveBudgetCents(c), 0)
     : incomeCents
 
   const byCategory = categories
-    .filter((c) => c.kind !== 'income')
+    // out of the totals means out of the breakdown and the donut: no slice of
+    // a pie it is not part of
+    .filter((c) => c.kind !== 'income' && !excluded.has(c.id))
     .map((c) => {
       const catSpentCents = catSpentInCents(inMonth, c.id)
       const prevSpentCents = catSpentInCents(inPrevMonth, c.id)
@@ -774,14 +961,16 @@ export async function getRecentMonthTotals(monthPrefix, count = 3, payDayOverrid
   const payDay = payDayOverride ?? (await getPayDay())
   const periodKey = monthPrefix || currentPeriodKey(payDay)
   const transactions = loadTransactionsRaw()
+  const excluded = excludedCategoryIds(loadCategoriesRaw())
+  const counted = (t) => !excluded.has(t.categoryId)
   const months = []
   for (let i = count - 1; i >= 0; i--) {
     months.push(shiftMonthPrefix(periodKey, -i))
   }
   return months.map((m) => {
     const inThisPeriod = transactions.filter((t) => inPeriod(t.date, m, payDay))
-    const totalCents = inThisPeriod.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
-    const incomeCents = inThisPeriod.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
+    const totalCents = inThisPeriod.filter((t) => counted(t) && t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
+    const incomeCents = inThisPeriod.filter((t) => counted(t) && t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
     return { month: m, total: fromCents(totalCents), income: fromCents(incomeCents) }
   })
 }

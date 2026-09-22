@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# iOS build artifacts (the ios/ project itself is committed on purpose;
+# only its generated build output is ignored)
+ios/App/Pods/
+ios/App/build/
+ios/App/DerivedData/
+ios/**/xcuserdata/
+
+# impeccable design-system cache (regenerated)
+.impeccable/hook.cache.json

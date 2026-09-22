@@ -38,3 +38,6 @@ ios/**/xcuserdata/
 
 # impeccable design-system cache (regenerated)
 .impeccable/hook.cache.json
+
+# local editor/preview config
+.claude/

@@ -4,6 +4,7 @@ export const changelog = [
     version: '2.1.0',
     summary: 'New look, calmer and more honest dashboard, and a slide-out menu',
     changes: [
+      'The dashboard now breaks down income as well as spending. Under Insights there are two dials: where the money went, and where it came from — same instrument, same reading, so you can see at a glance that a month was carried by wages rather than by a repayment landing',
       'Any category can now be excluded from spending totals with a tick box. Its transactions still show in Activity exactly as before — they just stop counting toward Spent, Income, the budget figure, the category breakdown and the trend chart. Turned on for Transfers, so topping up Revolut no longer reads as €5,938 of spending, and available for anything else that is not really yours to spend (reimbursements, expenses someone pays back)',
       'A category can now be linked to a debt account, so expenses filed under it pay that debt down by themselves. Set it once in Settings → Categories (only debt accounts can be linked), and from then on logging, say, the Humm Group TV repayment brings the balance down without a second trip to Balances. A short confirmation tells you what changed, and deleting or editing the transaction puts the balance back',
       'Bills can be edited: tap a bill to change its name, amount, due day or category, the same way you tap a transaction to edit it. Payment history is kept, and a period you already marked paid is left exactly as it was — only the next payment uses the new figure',

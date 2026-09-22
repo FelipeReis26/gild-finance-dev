@@ -906,6 +906,9 @@ export async function getMonthSummary(monthPrefix, payDayOverride) {
   const catSpentInCents = (list, categoryId) =>
     list.filter((t) => counted(t) && t.type === 'expense' && t.categoryId === categoryId).reduce((sum, t) => sum + t.amount, 0)
 
+  const catReceivedInCents = (list, categoryId) =>
+    list.filter((t) => counted(t) && t.type === 'income' && t.categoryId === categoryId).reduce((sum, t) => sum + t.amount, 0)
+
   // Rollover: a category can carry an underspent amount from last month
   // into this month's effective budget, one month back only.
   const effectiveBudgetCents = (c) => {
@@ -946,12 +949,31 @@ export async function getMonthSummary(monthPrefix, payDayOverride) {
     .filter((c) => !c.archived || c._spentCents > 0)
     .map(({ _spentCents, ...rest }) => rest)
 
+  // Where the money came from, mirroring byCategory. Income has no budget or
+  // rollover, so a category is just itself plus what it brought in — this
+  // period and last, for the same comparison the expense rows show.
+  const byIncomeCategory = categories
+    .filter((c) => c.kind === 'income' && !excluded.has(c.id))
+    .map((c) => {
+      const receivedCents = catReceivedInCents(inMonth, c.id)
+      return {
+        ...c,
+        received: fromCents(receivedCents),
+        prevReceived: fromCents(catReceivedInCents(inPrevMonth, c.id)),
+        _receivedCents: receivedCents
+      }
+    })
+    .filter((c) => !c.archived || c._receivedCents > 0)
+    .sort((a, b) => b._receivedCents - a._receivedCents)
+    .map(({ _receivedCents, ...rest }) => rest)
+
   return {
     spent: fromCents(spentCents),
     income: fromCents(incomeCents),
     budget: fromCents(budgetCents),
     left: fromCents(incomeCents - spentCents),
-    byCategory
+    byCategory,
+    byIncomeCategory
   }
 }
 

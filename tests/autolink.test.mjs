@@ -221,5 +221,35 @@ ok(db.isExcludedFromTotals({ transfer: true }), 'transfer implies excluded')
 ok(db.isExcludedFromTotals({ excludeFromTotals: true }), 'the flag alone is enough')
 ok(!db.isExcludedFromTotals({}), 'and a plain category is counted')
 
+// === income breakdown ======================================================
+// Mirrors byCategory: income-kind categories, what each brought in, excluded
+// ones left out entirely.
+await seedTotals()
+let isum = await db.getMonthSummary('2026-09', 1)
+ok(Array.isArray(isum.byIncomeCategory), 'byIncomeCategory is returned')
+ok(isum.byIncomeCategory.every((c) => c.kind === 'income'),
+  'it contains only income categories')
+ok(!isum.byIncomeCategory.some((c) => c.id === 'food'),
+  'expense categories stay out of it')
+const wages = isum.byIncomeCategory.find((c) => c.id === 'wages')
+ok(wages && near(wages.received, 3000), `Wages received 3000 (got ${wages?.received})`)
+const xin = isum.byIncomeCategory.find((c) => c.id === 'xferin')
+ok(xin && near(xin.received, 4000), 'an unflagged income category is included')
+ok(isum.byIncomeCategory[0].received >= isum.byIncomeCategory[1].received,
+  'sorted largest first')
+
+// a flagged income category disappears from the breakdown, like the expense side
+await seedTotals(ON)
+isum = await db.getMonthSummary('2026-09', 1)
+ok(!isum.byIncomeCategory.some((c) => c.id === 'xferin'),
+  'an excluded income category is not a slice of the income ring')
+ok(isum.byIncomeCategory.some((c) => c.id === 'wages'), 'ordinary income still appears')
+ok(near(isum.byIncomeCategory.reduce((s, c) => s + c.received, 0), isum.income),
+  'the ring total equals the headline Income figure')
+
+// and the expense ring total still equals Spent
+ok(near(isum.byCategory.reduce((s, c) => s + c.spent, 0), isum.spent),
+  'the spend ring total equals the headline Spent figure')
+
 console.log(`${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

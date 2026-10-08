@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
-import { currencyOptions, iconOptions, exportBackup, importBackup, summarizeBackup, findImportDuplicates, getPasscode, setPasscode, clearPasscode, normalizePayRule, runningBalance, todayLocalDate, isExcludedFromTotals } from '../db.js'
+import { currencyOptions, iconOptions, exportBackup, importBackup, summarizeBackup, findImportDuplicates, getPasscode, setPasscode, clearPasscode, normalizePayRule, accountBalance, anchorFromReal, todayLocalDate, isExcludedFromTotals } from '../db.js'
 import { languageOptions, localeFor, formatMoney } from '../i18n.js'
 import { changelog } from '../changelog.js'
 
@@ -21,7 +21,7 @@ function MenuScreen({ onOpen, t }) {
   const items = [
     { key: 'currency', label: t('currency'), icon: 'ti-coin' },
     { key: 'payday', label: t('payDay'), icon: 'ti-calendar-dollar' },
-    { key: 'cash', label: t('cashBalance'), icon: 'ti-wallet' },
+    { key: 'cash', label: t('accountsTitle'), icon: 'ti-wallet' },
     { key: 'language', label: t('language'), icon: 'ti-language' },
     { key: 'categories', label: t('categoriesSettings'), icon: 'ti-tag' },
     { key: 'security', label: t('security'), icon: 'ti-lock' },
@@ -154,108 +154,146 @@ function PayDayScreen({ onBack, t }) {
   )
 }
 
-function CashScreen({ onBack, t }) {
-  const { cash, changeCash, transactions, currency, language } = useApp()
-  const [opening, setOpening] = useState(String(cash.openingValue ?? ''))
-  const [openingDate, setOpeningDate] = useState(cash.openingDate || todayLocalDate())
+// One card per real account. Each keeps its own anchor and reconciles against
+// its own statement — a single figure across the current account and Revolut could never tie
+// out to either.
+function AccountCard({ account, t }) {
+  const { accounts, transactions, updateAccount, removeAccount, currency, language } = useApp()
+  const anchor = account.anchor
+  const [opening, setOpening] = useState(anchor ? String(anchor.openingValue) : '')
+  const [openingDate, setOpeningDate] = useState(anchor?.openingDate || todayLocalDate())
   const [reconcile, setReconcile] = useState('')
+  const [name, setName] = useState(account.name)
   const money = (v) => formatMoney(language, currency, v, { decimals: 2 })
-  const rb = runningBalance(cash, transactions)
+  const rb = accountBalance(account, transactions, accounts)
+  const real = parseFloat(reconcile)
+  const diff = rb && !isNaN(real) ? real - rb.balance : null
+
+  const saveAnchor = (enabled) =>
+    updateAccount(account.id, {
+      anchor: { enabled, openingValue: parseFloat(opening) || 0, openingDate }
+    })
 
   return (
-    <div className="screen">
-      <BackButton onBack={onBack} label={t('back')} />
-      <p className="section-title">{t('cashBalance')}</p>
-
-      <div className="card">
-        <p className="muted" style={{ marginTop: 0, marginBottom: 14, fontSize: 13 }}>
-          {t('cashNote')}
-        </p>
-        <label className="row gap checkbox-row" style={{ margin: 0, fontSize: 14 }}>
-          <input
-            type="checkbox"
-            checked={Boolean(cash.enabled)}
-            onChange={(e) =>
-              changeCash({
-                enabled: e.target.checked,
-                openingValue: parseFloat(opening) || 0,
-                openingDate
-              })
-            }
-          />
-          {t('cashShowOnDashboard')}
-        </label>
-      </div>
-
-      <div className="card">
-        <label className="field-label">{t('cashOpeningValue')}</label>
+    <div className="card">
+      <div className="row between" style={{ marginBottom: 10 }}>
         <input
-          type="number"
-          inputMode="decimal"
-          placeholder="0.00"
-          value={opening}
-          onChange={(e) => setOpening(e.target.value)}
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => name.trim() && name !== account.name && updateAccount(account.id, { name: name.trim() })}
+          aria-label={t('newAccountName')}
+          style={{ marginBottom: 0, fontWeight: 600 }}
         />
-        <label className="field-label">{t('cashOpeningDate')}</label>
-        <input type="date" value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} />
-        <button
-          type="button"
-          className="primary-button"
-          onClick={() => changeCash({ enabled: cash.enabled, openingValue: parseFloat(opening) || 0, openingDate })}
-        >
-          {t('save')}
-        </button>
+        {accounts.length > 1 && !account.primary && (
+          <button
+            type="button"
+            className="mini-button"
+            style={{ marginLeft: 8 }}
+            aria-label={t('delete')}
+            onClick={() => window.confirm(t('deleteAccountConfirm').replace('{name}', account.name)) && removeAccount(account.id)}
+          >
+            <i className="ti ti-trash" aria-hidden="true"></i>
+          </button>
+        )}
       </div>
+
+      <label className="row gap checkbox-row" style={{ margin: '0 0 12px', fontSize: 14 }}>
+        <input type="checkbox" checked={Boolean(anchor?.enabled)} onChange={(e) => saveAnchor(e.target.checked)} />
+        {t('trackBalance')}
+      </label>
+
+      <label className="field-label">{t('cashOpeningValue')}</label>
+      <input type="number" inputMode="decimal" placeholder="0.00" value={opening} onChange={(e) => setOpening(e.target.value)} />
+      <label className="field-label">{t('cashOpeningDate')}</label>
+      <input type="date" value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} />
+      <button type="button" className="primary-button" onClick={() => saveAnchor(anchor?.enabled ?? true)}>
+        {t('save')}
+      </button>
 
       {rb && (
-        <div className="card">
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--rule-soft)' }}>
           <p className="engraved" style={{ marginBottom: 8 }}>{t('cashReconcile')}</p>
-          <p className="muted" style={{ marginTop: 0, marginBottom: 12, fontSize: 13 }}>
-            {t('cashReconcileNote')}
-          </p>
           <p className="row-sub" style={{ margin: '0 0 12px' }}>
             {t('cashBalance')}: <strong style={{ color: 'var(--ink)' }}>{money(rb.balance)}</strong>
+            <span className="muted"> · {t('cashSince')} {rb.since} · {rb.counted} {t('cashCounted')}</span>
           </p>
           <label className="field-label">{t('cashRealValue')}</label>
-          <input
-            type="number"
-            inputMode="decimal"
-            placeholder="0.00"
-            value={reconcile}
-            onChange={(e) => setReconcile(e.target.value)}
-          />
-          {reconcile !== '' && !isNaN(parseFloat(reconcile)) && (
-            <p
-              className="row-sub"
-              style={{
-                margin: '-6px 0 12px',
-                color: Math.abs(parseFloat(reconcile) - rb.balance) < 0.005 ? 'var(--credit)' : 'var(--danger-text)'
-              }}
-            >
-              {Math.abs(parseFloat(reconcile) - rb.balance) < 0.005
-                ? t('cashMatches')
-                : `${money(Math.abs(parseFloat(reconcile) - rb.balance))} ${t('cashUnaccounted')}`}
+          <input type="number" inputMode="decimal" placeholder="0.00" value={reconcile} onChange={(e) => setReconcile(e.target.value)} />
+          {diff !== null && (
+            <p className="row-sub" style={{ margin: '-6px 0 12px', color: Math.abs(diff) < 0.005 ? 'var(--credit)' : 'var(--danger-text)' }}>
+              {Math.abs(diff) < 0.005 ? t('cashMatches') : `${money(Math.abs(diff))} ${t('cashUnaccounted')}`}
             </p>
           )}
           <button
             type="button"
             className="secondary-button"
             style={{ width: '100%' }}
-            disabled={reconcile === '' || isNaN(parseFloat(reconcile))}
+            disabled={isNaN(real)}
             onClick={() => {
-              const value = parseFloat(reconcile)
-              if (isNaN(value)) return
-              const today = todayLocalDate()
-              setOpening(String(value))
-              setOpeningDate(today)
+              if (isNaN(real)) return
+              const next = anchorFromReal(account, real, transactions, accounts)
+              setOpening(String(next.openingValue))
+              setOpeningDate(next.openingDate)
               setReconcile('')
-              changeCash({ enabled: true, openingValue: value, openingDate: today })
+              updateAccount(account.id, { anchor: next })
             }}
           >
             {t('cashReAnchor')}
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+function CashScreen({ onBack, t }) {
+  const { accounts, cash, addAccount, currency, language } = useApp()
+  const [newName, setNewName] = useState('')
+  const money = (v) => formatMoney(language, currency, v, { decimals: 2 })
+
+  return (
+    <div className="screen">
+      <BackButton onBack={onBack} label={t('back')} />
+      <p className="section-title">{t('accountsTitle')}</p>
+      <p className="muted" style={{ margin: '0 4px', fontSize: 13 }}>{t('accountsNote')}</p>
+
+      {/* The old single figure covered both banks at once, so it cannot be
+          split into per-account anchors. Say so rather than drop it silently. */}
+      {/* Only until he has set an account up — after that it is just noise. */}
+      {cash?.enabled && !accounts.some((a) => a.anchor?.enabled) && (
+        <div className="card" style={{ borderColor: 'var(--rule-gold)' }}>
+          <p className="row-sub" style={{ margin: 0 }}>
+            {t('legacyCashNotice')
+              .replace('{value}', money(cash.openingValue))
+              .replace(
+                '{date}',
+                new Date(cash.openingDate + 'T00:00:00').toLocaleDateString(localeFor(language), { day: 'numeric', month: 'short' })
+              )}
+          </p>
+        </div>
+      )}
+
+      {accounts.map((a) => (
+        <AccountCard key={a.id} account={a} t={t} />
+      ))}
+
+      <div className="card">
+        <label className="field-label">{t('addAccount')}</label>
+        <input type="text" placeholder={t('newAccountName')} value={newName} onChange={(e) => setNewName(e.target.value)} />
+        <button
+          type="button"
+          className="secondary-button"
+          style={{ width: '100%' }}
+          disabled={!newName.trim()}
+          onClick={async () => {
+            await addAccount({ name: newName.trim() })
+            setNewName('')
+          }}
+        >
+          {t('addAccount')}
+        </button>
+      </div>
     </div>
   )
 }

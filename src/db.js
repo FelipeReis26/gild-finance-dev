@@ -24,6 +24,7 @@ const KEYS = {
   onboarded: 'ft_onboarded',
   merchantMap: 'ft_merchant_map',
   cash: 'ft_cash',
+  accounts: 'ft_accounts',
   a2hsDismissed: 'ft_a2hs_dismissed',
   schemaVersion: 'ft_schema_version'
 }
@@ -437,6 +438,165 @@ export async function dismissA2HS() {
 // correctable rather than permanent: the app can only be as right as what
 // has been logged, and the anchor is how you tell it the truth again.
 
+// --- Accounts ---------------------------------------------------------
+// A cash figure only means something against ONE real account. Felipe banks
+// through two (a current account and Revolut), so a single combined
+// balance could never tie out to either statement — it summed both plus
+// anything untagged.
+//
+// Each account therefore carries its own anchor: a figure he knows was true on
+// a date, and a running total from the transactions belonging to that account
+// alone.
+//
+// Note what does NOT apply here: the exclude-from-totals / transfer rule.
+// That exists so moving money between his own accounts does not read as
+// spending on the budget dashboard. But a top-up genuinely left the current account and
+// genuinely arrived in Revolut, so for cash it must count on both sides.
+
+const DEFAULT_ACCOUNTS = [
+  { id: 'main', name: 'Current account', primary: true },
+  { id: 'revolut', name: 'Revolut' },
+  // Revolut's Flexible Cash Funds vault. Money swept into it has left the
+  // Revolut current account but is still his, so it gets its own figure.
+  { id: 'revolut-savings', name: 'Revolut Savings' }
+]
+
+function loadAccountsRaw() {
+  const raw = load(KEYS.accounts, null)
+  if (raw && raw.length) return raw
+  const seeded = DEFAULT_ACCOUNTS.map((a) => ({ ...a, anchor: null }))
+  save(KEYS.accounts, seeded)
+  return seeded
+}
+
+const toDisplayAccount = (a) => ({
+  ...a,
+  anchor: a.anchor ? { ...a.anchor, openingValue: fromCents(a.anchor.openingValue || 0) } : null
+})
+
+export async function getAccounts() {
+  return loadAccountsRaw().map(toDisplayAccount)
+}
+
+export function primaryAccountId(accounts) {
+  const list = accounts || []
+  return (list.find((a) => a.primary) || list[0])?.id || 'main'
+}
+
+// Which account a transaction belongs to. Rows written before accounts
+// existed have no accountId and are treated as the primary account, which is
+// where his salary lands and most things leave from.
+export function accountOf(tx, accounts) {
+  const list = accounts || []
+  // An account that has since been deleted hands its rows to the primary
+  // account rather than leaving them attributed to something that no longer
+  // exists — which would make them vanish from every balance.
+  if (tx?.accountId && list.some((a) => a.id === tx.accountId)) return tx.accountId
+  return primaryAccountId(list)
+}
+
+export async function addAccount({ name }) {
+  const accounts = loadAccountsRaw()
+  const record = { id: id(), name: (name || '').trim() || 'Account', anchor: null }
+  accounts.push(record)
+  save(KEYS.accounts, accounts)
+  return toDisplayAccount(record)
+}
+
+export async function updateAccount(accountId, updates) {
+  const accounts = loadAccountsRaw()
+  const acct = accounts.find((a) => a.id === accountId)
+  if (!acct) return null
+  const next = { ...updates }
+  if ('anchor' in next) {
+    next.anchor = next.anchor
+      ? {
+          enabled: Boolean(next.anchor.enabled),
+          openingValue: toCents(next.anchor.openingValue || 0),
+          openingDate: next.anchor.openingDate || todayLocal()
+        }
+      : null
+  }
+  Object.assign(acct, next)
+  save(KEYS.accounts, accounts)
+  return toDisplayAccount(acct)
+}
+
+export async function deleteAccount(accountId) {
+  const accounts = loadAccountsRaw()
+  if (accounts.length <= 1) return null          // never leave zero accounts
+  const remaining = accounts.filter((a) => a.id !== accountId)
+  if (!remaining.some((a) => a.primary)) remaining[0].primary = true
+  save(KEYS.accounts, remaining)
+  return remaining.map(toDisplayAccount)
+}
+
+// How one row moves ONE account's money, in cents: positive in, negative out,
+// zero if the row does not touch it.
+//
+// A row lives on accountOf(t). A move between two of his own accounts also
+// names the other end in counterAccountId, so a single row keeps both right:
+// an expense here is money arriving there; an income here is money that left
+// there. That is what lets "Revolut**551 top-up" debit the current account and credit
+// Revolut without a second row that could be double-counted.
+function movementFor(t, id, accounts) {
+  const amt = toCents(t.amount)
+  if (accountOf(t, accounts) === id) return t.type === 'income' ? amt : -amt
+  if (t.counterAccountId === id) return t.type === 'income' ? -amt : amt
+  return 0
+}
+
+// The running figure for ONE account: its anchor, plus everything that moved
+// in or out of that account since.
+export function accountBalance(account, transactions, accounts) {
+  const anchor = account?.anchor
+  if (!anchor?.enabled) return null
+  const id = account.id
+  const since = (transactions || []).filter((t) => t.date >= anchor.openingDate)
+  let inCents = 0
+  let outCents = 0
+  let counted = 0
+  for (const t of since) {
+    const m = movementFor(t, id, accounts)
+    if (!m && accountOf(t, accounts) !== id) continue
+    if (m > 0) inCents += m
+    else outCents -= m
+    counted++
+  }
+  const openingCents = toCents(anchor.openingValue)
+  return {
+    accountId: id,
+    name: account.name,
+    balance: fromCents(openingCents + inCents - outCents),
+    opening: fromCents(openingCents),
+    income: fromCents(inCents),
+    spent: fromCents(outCents),
+    since: anchor.openingDate,
+    counted
+  }
+}
+
+// The anchor to store when reconciling against what the bank says right now.
+//
+// An anchor means "the balance at the START of openingDate" — everything dated
+// that day or later is counted on top of it. A bank figure read today already
+// includes today's movements, so storing it as-is dated today would count
+// those twice and the account could never read "matches". Backing today's own
+// movements out of it makes the running figure land exactly on what the bank
+// says, and still counts anything logged later in the day.
+export function anchorFromReal(account, realValue, transactions, accounts, date = todayLocal()) {
+  const id = account.id
+  let todayNetCents = 0
+  for (const t of transactions || []) {
+    if (t.date === date) todayNetCents += movementFor(t, id, accounts)
+  }
+  return {
+    enabled: true,
+    openingValue: fromCents(toCents(realValue) - todayNetCents),
+    openingDate: date
+  }
+}
+
 export async function getCash() {
   const raw = load(KEYS.cash, null)
   if (!raw) return { enabled: false, openingValue: 0, openingDate: todayLocal() }
@@ -489,28 +649,6 @@ function withTransferFlag(record, categories) {
     return rest
   }
   return record
-}
-
-// Pure: the balance implied by the anchor plus everything logged since it.
-// `transactions` are the decimal-amount records the screens already hold.
-export function runningBalance(cash, transactions) {
-  if (!cash?.enabled) return null
-  const since = (transactions || []).filter((t) => t.date >= cash.openingDate)
-  const inCents = since
-    .filter((t) => counts(t) && t.type === 'income')
-    .reduce((sum, t) => sum + toCents(t.amount), 0)
-  const outCents = since
-    .filter((t) => counts(t) && t.type === 'expense')
-    .reduce((sum, t) => sum + toCents(t.amount), 0)
-  const openingCents = toCents(cash.openingValue)
-  return {
-    balance: fromCents(openingCents + inCents - outCents),
-    opening: fromCents(openingCents),
-    income: fromCents(inCents),
-    spent: fromCents(outCents),
-    since: cash.openingDate,
-    counted: since.length
-  }
 }
 
 // --- Learned merchants -------------------------------------------------
@@ -616,8 +754,89 @@ export async function restoreCategory(categoryId) {
 
 // --- Transactions -------------------------------------------------------
 
+// Rows written before accounts existed carry only a provenance `source` tag.
+// That tag does say which bank they came from, so it is read once into a real
+// accountId — after which the account is the thing of record and `source` goes
+// back to being provenance.
+//
+// The other end of an own-account move is filled in only from literal
+// descriptors on his own statements, never from merchant guessing:
+//   - "Revolut**55x top-up" left the current account for Revolut
+//   - "To / From EUR Flexible Cash Funds" moved money between Revolut and its
+//     savings vault
+// Anything unrecognised stays one-sided and surfaces on Reconcile, which is
+// exactly what Reconcile is for.
+const TOP_UP_TO_REVOLUT = /revolut\*\*55\d/i
+const REVOLUT_TOP_UP_CREDIT = /apple pay top-up/i
+const VAULT_MOVE = /eur flexible cash funds/i
+
+const dayNumber = (iso) => {
+  const [y, m, d] = iso.split('-').map(Number)
+  return Date.UTC(y, m - 1, d) / 86400000
+}
+
+function migrateTransactionAccounts(list) {
+  if (list.every((t) => t.accountId)) return list
+  const out = list.map((t) => {
+    if (t.accountId) return t
+    const src = t.source || ''
+    // The descriptor decides, not the provenance tag: three of his top-ups were
+    // merged with rows he typed into the app and so carry no source at all.
+    const isTopUp = t.type === 'expense' && TOP_UP_TO_REVOLUT.test(t.note || '')
+    let accountId
+    if (src === 'bank-main' || isTopUp) accountId = 'main'
+    // pocket movements belong to the vault, not the Revolut current account —
+    // the statement's current-account section reconciles without them
+    else if (src === 'bank-revolut-pocket') accountId = 'revolut-savings'
+    else if (src.startsWith('bank-revolut')) accountId = 'revolut'
+    if (!accountId) return t
+    const next = { ...t, accountId }
+    if (accountId === 'revolut' && VAULT_MOVE.test(t.note || '')) next.counterAccountId = 'revolut-savings'
+    return next
+  })
+
+  // A top-up only needs its far end filled in when Revolut's own record of the
+  // credit is missing. Where both legs survived — the current-account side dated by the
+  // card terminal, the Revolut side a day later — crediting Revolut from the
+  // current-account row as well would count the money twice. Matched one-to-one, nearest
+  // date first, so two EUR 20 top-ups cannot both claim one EUR 20 credit.
+  const credits = out
+    .map((t, i) => ({ t, i }))
+    .filter(({ t }) => t.accountId === 'revolut' && t.type === 'income' && REVOLUT_TOP_UP_CREDIT.test(t.note || ''))
+  const topUps = out
+    .map((t, i) => ({ t, i }))
+    .filter(({ t, i }) => !list[i].accountId && t.accountId === 'main' && t.type === 'expense' && TOP_UP_TO_REVOLUT.test(t.note || ''))
+  // Every plausible pairing, closest first, assigned globally. Greedy per
+  // top-up in list order could let a later top-up take a credit that belongs
+  // to an earlier, nearer one — totals still right, but a EUR 20 on the wrong
+  // date, which is enough to throw off a reconcile run in between.
+  const pairs = []
+  for (const u of topUps) {
+    for (const c of credits) {
+      const gap = Math.abs(dayNumber(c.t.date) - dayNumber(u.t.date))
+      if (c.t.amount === u.t.amount && gap <= 4) pairs.push({ u: u.i, c: c.i, gap })
+    }
+  }
+  pairs.sort((a, b) => a.gap - b.gap)
+  const matchedTopUps = new Set()
+  const claimed = new Set()
+  for (const p of pairs) {
+    if (matchedTopUps.has(p.u) || claimed.has(p.c)) continue
+    matchedTopUps.add(p.u)
+    claimed.add(p.c)
+  }
+  // Revolut has no record of the credit for these, so the current-account row supplies it.
+  for (const u of topUps) {
+    if (!matchedTopUps.has(u.i)) out[u.i] = { ...out[u.i], counterAccountId: 'revolut' }
+  }
+  return out
+}
+
 function loadTransactionsRaw() {
-  return load(KEYS.transactions, [])
+  const raw = load(KEYS.transactions, [])
+  const migrated = migrateTransactionAccounts(raw)
+  if (migrated !== raw) save(KEYS.transactions, migrated)
+  return migrated
 }
 
 function toDisplayTransaction(t) {
@@ -630,8 +849,9 @@ export async function getTransactions() {
 }
 
 // --- Category -> balance auto-link --------------------------------------
-// Some recurring expenses are really debt repayments: the Humm Group "TV
-// repayment" line is a payment against a debt, not ordinary spending. A
+// Some recurring expenses are really debt repayments: the monthly instalment
+// on a TV bought on a payment plan is a payment against a debt, not ordinary
+// spending. A
 // category can name one debt account, set once in Settings, and every expense
 // filed under it then writes the matching balance entry by itself instead of
 // needing a second manual visit to Balances.

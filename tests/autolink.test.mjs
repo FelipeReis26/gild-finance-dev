@@ -23,7 +23,7 @@ async function seed({ linked = true, accountType = 'debt' } = {}) {
   localStorage.setItem('ft_transactions', '[]')
   localStorage.setItem('ft_bills', '[]')
   localStorage.setItem('ft_balances', JSON.stringify([
-    { id: 'acct-tv', name: 'Humm Group TV', type: accountType, icon: 'ti-credit-card',
+    { id: 'acct-tv', name: 'Acme TV Finance', type: accountType, icon: 'ti-credit-card',
       entries: [{ date: '2026-09-01', value: 100000 }] }   // EUR 1,000.00 in cents
   ]))
   localStorage.setItem('ft_categories', JSON.stringify([
@@ -40,7 +40,7 @@ await seed()
 const tx1 = await db.addTransaction({ type: 'expense', amount: 100, categoryId: 'tv', date: '2026-09-10' })
 ok(near(await latest(), 900), `balance 1000 - 100 = 900 (got ${await latest()})`)
 ok(db.latestEntry(await acct()).date === '2026-09-10', 'entry is dated like the transaction')
-ok(tx1._autoBalance?.accountName === 'Humm Group TV', 'the effect is reported back for a confirmation')
+ok(tx1._autoBalance?.accountName === 'Acme TV Finance', 'the effect is reported back for a confirmation')
 ok(near(tx1._autoBalance.value, 900), 'reported value matches the new balance')
 
 // === 2. two on the same day: the same-day tie-break still holds ============
@@ -118,7 +118,7 @@ ok(near(await latest(), 940), `recategorising into the linked category applies i
 await seed()
 const n1 = await db.addTransaction({ type: 'expense', amount: 100, categoryId: 'tv', date: '2026-09-10' })
 const entryIdBefore = n1.autoBalanceEntryId
-await db.updateTransaction(n1.id, { note: 'Humm Group' })
+await db.updateTransaction(n1.id, { note: 'Acme TV Finance' })
 const after = (await db.getTransactions()).find((t) => t.id === n1.id)
 ok(after.autoBalanceEntryId === entryIdBefore, 'editing only the note leaves the balance entry untouched')
 ok(near(await latest(), 900), 'and the balance is unchanged')

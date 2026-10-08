@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
-import { todayLocalDate, latestEntry } from '../db.js'
+import { todayLocalDate, latestEntry, primaryAccountId } from '../db.js'
 import { formatMoney } from '../i18n.js'
 
 export default function AddTransaction({ prefill, editingId, onDone, onScan }) {
@@ -13,6 +13,7 @@ export default function AddTransaction({ prefill, editingId, onDone, onScan }) {
     addTransaction,
     editTransaction,
     deleteTransactionWithUndo,
+    accounts,
     t
   } = useApp()
   // Accounts tracking money other people owe you, with something still outstanding.
@@ -23,6 +24,11 @@ export default function AddTransaction({ prefill, editingId, onDone, onScan }) {
   const [categoryId, setCategoryId] = useState(prefill?.categoryId || '')
   const [date, setDate] = useState(prefill?.date || todayLocalDate())
   const [note, setNote] = useState(prefill?.note || '')
+  // Which real account the money moved through, so each account's balance stays
+  // its own. Defaults to the primary account, where salary lands.
+  const [accountId, setAccountId] = useState(prefill?.accountId || primaryAccountId(accounts))
+  const [counterAccountId, setCounterAccountId] = useState(prefill?.counterAccountId || '')
+  const isTransferCategory = !!categories.find((c) => c.id === categoryId)?.transfer
   const [error, setError] = useState('')
 
   const relevantCategories = categories.filter(
@@ -44,15 +50,16 @@ export default function AddTransaction({ prefill, editingId, onDone, onScan }) {
       setError(t('enterValidAmount'))
       return
     }
+    const movesTo = isTransferCategory && counterAccountId && counterAccountId !== accountId ? counterAccountId : undefined
     if (!categoryId) {
       setError(t('chooseCategory'))
       return
     }
     const repaid = type === 'income' && repaymentId ? owedAccounts.find((a) => a.id === repaymentId) : null
     if (editingId) {
-      await editTransaction(editingId, { type, amount: value, categoryId, date, note })
+      await editTransaction(editingId, { type, amount: value, categoryId, date, note, accountId, counterAccountId: movesTo })
     } else {
-      await addTransaction({ type, amount: value, categoryId, date, note, owedAccountId: repaid?.id })
+      await addTransaction({ type, amount: value, categoryId, date, note, owedAccountId: repaid?.id, accountId, counterAccountId: movesTo })
     }
     // A repayment is one event with two records: the money arriving, and the
     // outstanding balance coming down. Logging both here means the two can't
@@ -173,6 +180,37 @@ export default function AddTransaction({ prefill, editingId, onDone, onScan }) {
                   </p>
                 )
               })()}
+          </>
+        )}
+
+        {/* Only when there is more than one account to choose between — a
+            single-account setup should not grow an extra field. */}
+        {accounts.length > 1 && (
+          <>
+            <label className="field-label">{t('accountLabel')}</label>
+            <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+            {isTransferCategory && (
+              <>
+                {/* the far end: where it went, or for money in, where it came from */}
+                <label className="field-label">{type === 'income' ? t('fromAccountLabel') : t('toAccountLabel')}</label>
+                <select value={counterAccountId} onChange={(e) => setCounterAccountId(e.target.value)}>
+                  <option value="">{t('toAccountNone')}</option>
+                  {accounts
+                    .filter((a) => a.id !== accountId)
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                </select>
+              </>
+            )}
           </>
         )}
 

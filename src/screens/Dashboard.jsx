@@ -3,12 +3,12 @@ import { useApp } from '../context/AppContext.jsx'
 import BreakdownRing from '../components/BreakdownRing.jsx'
 import { useSwipe } from '../useSwipe.js'
 import { formatMoney, formatMonthShort, localeFor } from '../i18n.js'
-import { periodBounds, currentPeriodKey, todayLocalDate, runningBalance } from '../db.js'
+import { periodBounds, currentPeriodKey, todayLocalDate, accountBalance } from '../db.js'
 
 const DAY_MS = 86400000
 
 export default function Dashboard({ onAddTransaction, onSelectCategory }) {
-  const { summary, currency, language, payDay, selectedMonth, changeMonth, goToMonth, monthTrend, periodLabel, cash, transactions, t } =
+  const { summary, currency, language, payDay, selectedMonth, changeMonth, goToMonth, monthTrend, periodLabel, accounts, transactions, t } =
     useApp()
   const swipe = useSwipe({ onSwipeLeft: () => changeMonth(1), onSwipeRight: () => changeMonth(-1) })
   const [showInsights, setShowInsights] = useState(false)
@@ -230,15 +230,16 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
         )
       })()}
 
-      {(() => {
-        // Running cash balance: an anchor plus everything logged since it.
-        const rb = runningBalance(cash, transactions)
-        if (!rb) return null
-        return (
-          <div className="card">
+      {/* One figure per tracked account. A single combined balance could never
+          match either bank statement, so each account reconciles on its own. */}
+      {accounts
+        .map((a) => accountBalance(a, transactions, accounts))
+        .filter(Boolean)
+        .map((rb) => (
+          <div className="card" key={rb.accountId}>
             <div className="row between">
               <span>
-                <span className="engraved" style={{ display: 'block' }}>{t('cashBalance')}</span>
+                <span className="engraved" style={{ display: 'block' }}>{rb.name}</span>
                 <span style={{ display: 'block', fontSize: 12, color: 'var(--ink-3)', marginTop: 4 }}>
                   {money(rb.opening, 2)} + {money(rb.income, 2)} − {money(rb.spent, 2)}
                 </span>
@@ -255,8 +256,7 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
               · {rb.counted} {t('cashCounted')}
             </p>
           </div>
-        )
-      })()}
+        ))}
 
       <button type="button" className="primary-button" onClick={onAddTransaction}>
         <i className="ti ti-plus" aria-hidden="true"></i> {t('addTransaction')}

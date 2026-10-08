@@ -32,6 +32,7 @@ export function AppProvider({ children }) {
   const [payDay, setPayDayState] = useState(1)
   const [monthTrend, setMonthTrend] = useState([])
   const [cash, setCash] = useState({ enabled: false, openingValue: 0, openingDate: '' })
+  const [accounts, setAccounts] = useState([])
   const [selectedMonth, setSelectedMonth] = useState(null) // null until pay day is known
   const [ready, setReady] = useState(false)
   // A one-off confirmation for something the app did on its own — currently
@@ -53,7 +54,7 @@ export function AppProvider({ children }) {
     async (monthOverride, payDayOverride) => {
       const pd = payDayOverride ?? payDay
       const month = monthOverride || selectedMonth || db.currentPeriodKey(pd)
-      const [cats, txs, billList, sum, curr, bals, lang, trend, pdFromStore, cashRec] = await Promise.all([
+      const [cats, txs, billList, sum, curr, bals, lang, trend, pdFromStore, cashRec, accts] = await Promise.all([
         db.getCategories(),
         db.getTransactions(),
         db.getBills(),
@@ -63,7 +64,8 @@ export function AppProvider({ children }) {
         db.getLanguage(),
         db.getRecentMonthTotals(month, 3, pd),
         db.getPayDay(),
-        db.getCash()
+        db.getCash(),
+        db.getAccounts()
       ])
       setCategories(cats)
       setTransactions(txs)
@@ -75,6 +77,7 @@ export function AppProvider({ children }) {
       setPayDayState(pdFromStore)
       setMonthTrend(trend)
       setCash(cashRec)
+      setAccounts(accts)
       setSelectedMonth(month)
       setReady(true)
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -284,6 +287,30 @@ export function AppProvider({ children }) {
     [refresh]
   )
 
+  const updateAccount = useCallback(
+    async (accountId, updates) => {
+      await db.updateAccount(accountId, updates)
+      await refresh()
+    },
+    [refresh]
+  )
+
+  const addAccount = useCallback(
+    async (account) => {
+      await db.addAccount(account)
+      await refresh()
+    },
+    [refresh]
+  )
+
+  const removeAccount = useCallback(
+    async (accountId) => {
+      await db.deleteAccount(accountId)
+      await refresh()
+    },
+    [refresh]
+  )
+
   const changeCash = useCallback(
     async (next) => {
       await db.setCash(next)
@@ -348,6 +375,10 @@ export function AppProvider({ children }) {
         monthTrend,
         cash,
         changeCash,
+        accounts,
+        updateAccount,
+        addAccount,
+        removeAccount,
         t: (key) => translate(language, key),
         selectedMonth,
         changeMonth,

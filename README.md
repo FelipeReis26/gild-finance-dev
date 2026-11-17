@@ -5,11 +5,18 @@ so it runs as a real iOS or Android app.
 
 ## Screens
 
-- Dashboard: monthly spend vs budget, income, category breakdown
-- Add transaction: expense or income entry
+- Dashboard: safe to spend today (income, minus bills still due, money set
+  aside and spending so far), savings and pay-off goals, top budgets
+- Payday plan: on payday, split the pay across bills, savings and limits
+- Add transaction: expense, income or a move between your own accounts
 - Activity: full transaction list, grouped by day, filterable by category
-- Bills: recurring bills, due dates, mark as paid
-- Scan: upload a screenshot, review the detected amount and merchant, confirm to save
+- Bills: recurring bills, due dates, mark as paid (a transfer bill moves
+  money into a savings pot or onto a card)
+- Balances: debts, savings and money owed, with goals
+- Subscriptions: repeat charges found in the transactions
+- Scan: read a receipt screenshot on the device, or import a bank
+  statement (Bank of Ireland CSV, Revolut CSV, Avant PDF)
+- Settings: reminders, the Tripsy link, categories and limits, backups
 
 ## Data
 
@@ -59,15 +66,23 @@ current data in the same folder, and doesn't restore if it can't.
 `codemagic.yaml` is from an earlier plan to build in the cloud for
 TestFlight, which needs the paid developer account.
 
-## Wiring up real screenshot scanning
+## Statement import and trips
 
-`src/screens/ScanImport.jsx` calls a stub function `scanImage()` that
-returns fake data after a short delay. Replace its body with a real
-call, for example sending the uploaded image to Claude's API with a
-prompt asking for amount, merchant, and date back as JSON, or to a
-dedicated OCR service. The rest of the screen, including the confirm
-step, works unchanged once that function returns real data in the
-same shape.
+`src/statements.js` reads the statement files and matches them against what
+is already in Gild (duplicates, moves already counted from the other account,
+bills paid, last time's category, the bank's closing balance). PDFs are read
+by iOS's own PDFKit in the app (the PdfText plugin in
+`ios/App/App/AppDelegate.swift`) and by pdf.js in a browser.
+
+`src/tripsy.js` reads trip costs from the Tripsy trip planner's feed so a
+savings goal can follow a trip. It only reads; the access key stays on the
+device and is never put in a backup.
+
+## Tests
+
+```
+npm test
+```
 
 ## Next steps worth considering
 

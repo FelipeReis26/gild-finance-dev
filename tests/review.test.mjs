@@ -91,5 +91,17 @@ const plan = db.planReminders({
 })
 ok(plan.length === 1 && !/Secret trip/.test(plan[0].title + plan[0].body), 'goal reminder anonymous when hidden')
 
+// 10. a hidden subscription stays hidden when older statements arrive later
+const charge = (date, amount) => ({ id: date, type: 'expense', amount, date, note: 'Gym Co', categoryId: 'rent' })
+const recent = [charge('2026-08-05', 30), charge('2026-09-05', 30), charge('2026-10-05', 30), charge('2026-11-05', 30)]
+const sub = db.findSubscriptions(recent, [], '2026-11-17', [])[0]
+const hiddenList = [sub.key]
+const withOlder = [charge('2026-05-05', 27), charge('2026-06-05', 28), charge('2026-07-05', 29), ...recent]
+const again = db.findSubscriptions(withOlder, [], '2026-11-17', [])[0]
+ok(db.isHiddenSubscription(again, hiddenList), 'still hidden after older, cheaper charges are imported')
+const raised = db.findSubscriptions([...recent, charge('2026-12-05', 32)], [], '2026-12-17', [])[0]
+ok(db.isHiddenSubscription(raised, hiddenList), 'still hidden after a small price rise')
+ok(!db.isHiddenSubscription({ ...sub, merchant: 'other' }, hiddenList), 'another shop is not hidden')
+
 console.log(`review: ${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

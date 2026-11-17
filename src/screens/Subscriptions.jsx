@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
-import { findSubscriptions, getHiddenSubscriptions, setSubscriptionHidden, todayLocalDate } from '../db.js'
+import { findSubscriptions, getHiddenSubscriptions, setSubscriptionHidden, todayLocalDate, isHiddenSubscription } from '../db.js'
 import { formatMoney, localeFor } from '../i18n.js'
 
 // Repeat charges Gild found in the transactions: what's still running, what
@@ -24,17 +24,23 @@ export default function Subscriptions() {
     () => findSubscriptions(transactions, bills, todayLocalDate(), categories),
     [transactions, bills, categories]
   )
-  const hiddenSet = new Set(hidden)
-  const visible = all.filter((s) => !hiddenSet.has(s.key))
+  const isHidden = (s) => isHiddenSubscription(s, hidden)
+  const visible = all.filter((s) => !isHidden(s))
   const active = visible.filter((s) => s.status === 'active')
   const late = visible.filter((s) => s.status === 'late')
   const stopped = visible.filter((s) => s.status === 'stopped')
-  const hiddenOnes = all.filter((s) => hiddenSet.has(s.key))
+  const hiddenOnes = all.filter(isHidden)
 
   const monthly = active.reduce((sum, s) => sum + Math.round(s.monthly * 100), 0) / 100
 
-  async function toggleHidden(key, hide) {
-    setHidden(await setSubscriptionHidden(key, hide))
+  async function toggleHidden(s, hide) {
+    if (hide) setHidden(await setSubscriptionHidden(s.key, true))
+    else {
+      // un-hide every stored entry that matches it (its price may have moved since)
+      let list = hidden
+      for (const h of hidden.filter((h) => isHiddenSubscription(s, [h]))) list = await setSubscriptionHidden(h, false)
+      setHidden(list)
+    }
     setOpen(null)
   }
 
@@ -99,7 +105,7 @@ export default function Subscriptions() {
                   {t('addAsBill')}
                 </button>
               )}
-              <button type="button" className="mini-button" onClick={() => toggleHidden(s.key, !isHidden)}>
+              <button type="button" className="mini-button" onClick={() => toggleHidden(s, !isHidden)}>
                 {isHidden ? t('unhideSub') : t('hideSub')}
               </button>
             </div>

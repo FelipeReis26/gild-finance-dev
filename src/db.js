@@ -1629,7 +1629,11 @@ export function findSubscriptions(transactions, bills = [], today = todayLocal()
           return bk && (bk.split(' ').some((w) => w.length >= 4 && key.includes(w)) || key.split(' ').some((w) => w.length >= 4 && bk.includes(w)))
         })
       found.push({
-        key: `${key}|${cl[0].cents}`,
+        // keyed on the shop and its latest price: importing older statements
+        // changes the earliest charge, so that must not change the key
+        key: `${key}|${last.cents}`,
+        merchant: key,
+        lastCents: last.cents,
         name: last.note,
         amount: fromCents(last.cents),
         cadence,
@@ -1649,6 +1653,19 @@ export function findSubscriptions(transactions, bills = [], today = todayLocal()
   }
   const rank = { active: 0, late: 1, stopped: 2 }
   return found.sort((a, b) => rank[a.status] - rank[b.status] || b.monthly - a.monthly)
+}
+
+// Whether a found subscription is one the person hid: same shop, and a
+// price within 12% (or 50c) of the one it had when hidden, so a small price
+// rise or older statements arriving later don't bring it back.
+export function isHiddenSubscription(sub, hidden) {
+  return (hidden || []).some((h) => {
+    const cut = String(h).lastIndexOf('|')
+    const merchant = String(h).slice(0, cut)
+    const cents = parseInt(String(h).slice(cut + 1), 10)
+    if (merchant !== sub.merchant || !Number.isFinite(cents)) return false
+    return Math.abs(sub.lastCents - cents) <= Math.max(Math.round(cents * 0.12), 50)
+  })
 }
 
 // Repeat charges the person has said aren't subscriptions. Keyed by the

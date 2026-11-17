@@ -1,18 +1,24 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
 import BreakdownRing from '../components/BreakdownRing.jsx'
 import { useSwipe } from '../useSwipe.js'
-import { formatMoney, formatMonthShort, localeFor } from '../i18n.js'
-import { periodBounds, currentPeriodKey, todayLocalDate, accountBalance } from '../db.js'
+import { formatMoney, formatMonthShort, localeFor, tf } from '../i18n.js'
+import { periodBounds, currentPeriodKey, todayLocalDate, accountBalance, safeToSpend, goalProgress, getPlanState, setPlanState } from '../db.js'
 
 const DAY_MS = 86400000
 
-export default function Dashboard({ onAddTransaction, onSelectCategory }) {
-  const { summary, currency, language, payDay, selectedMonth, changeMonth, goToMonth, monthTrend, periodLabel, accounts, transactions, t } =
+export default function Dashboard({ onAddTransaction, onSelectCategory, onPlan, onOpenTrip }) {
+  const { summary, currency, language, payDay, selectedMonth, changeMonth, goToMonth, monthTrend, periodLabel, accounts, transactions, bills, balances, categories, tripsy, t } =
     useApp()
   const swipe = useSwipe({ onSwipeLeft: () => changeMonth(1), onSwipeRight: () => changeMonth(-1) })
   const [showInsights, setShowInsights] = useState(false)
   const [showUnused, setShowUnused] = useState(false)
+  // Payday card: the first three days of a period, until planned or put off.
+  const [planState, setPlanStateLocal] = useState(undefined)
+  const nowKey = currentPeriodKey(payDay)
+  useEffect(() => {
+    getPlanState(nowKey).then((st) => setPlanStateLocal(st))
+  }, [nowKey])
 
   if (!summary) return <p className="muted">Loading</p>
 
@@ -41,18 +47,35 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
   const elapsedDays = isCurrent ? dayIndex - 1 : isFuture ? 0 : totalDays
   const todayIdx = isCurrent ? dayIndex - 1 : -1
 
-  const left = summary.left
+  // Safe to spend: the current period subtracts the bills still due and the
+  // money set aside for savings, so the dial answers "what can I still spend"
+  // rather than "income minus spending". Other periods keep the plain figure:
+  // an ended period's bills are history, and a coming one has no pay in yet.
+  const safe = isCurrent ? safeToSpend(summary, bills, categories, selectedMonth) : null
+  const left = safe ? safe.safe : summary.left
   const over = left < 0
   const perDay = isCurrent && daysRemaining > 0 ? left / daysRemaining : null
+  const endLabel = end.toLocaleDateString(localeFor(language), { day: 'numeric', month: 'short', timeZone: 'UTC' })
+  const goals = (balances || [])
+    .filter((a) => (a.type === 'savings' || a.type === 'debt') && a.goal)
+    .map((a) => ({ account: a, p: goalProgress(a, bills, payDay) }))
+    .filter((g) => g.p)
   const daysWord = daysRemaining === 1 ? t('dayLeft') : t('daysLeft')
   // Past periods have ended; a period that hasn't started yet is upcoming —
   // never label a future period "ended".
   const periodState = isCurrent ? `${daysRemaining} ${daysWord}` : isFuture ? t('upcoming') : t('periodEnded')
   // The dial's accessible story leads with the focal fact — what's left —
   // then the pace, matching what the sighted eye reads at center.
-  const dialLabel = `${over ? t('overspent') : t('leftToSpend')}: ${money(Math.abs(left))} · ${periodState}${
-    isCurrent && perDay != null && !over ? ` · ${money(perDay)}/${t('perDay')}` : ''
-  } · ${t('income')} ${money(summary.income)} · ${t('spent')} ${money(summary.spent)}`
+  const showDaily = Boolean(safe) && isCurrent && perDay != null && !over
+  const dialLabel = safe
+    ? `${showDaily ? `${t('safeToSpendToday')}: ${money(perDay)} · ` : ''}${over ? t('overBy') : t('safeToSpend')}: ${money(
+        Math.abs(left)
+      )} · ${periodState} · ${t('income')} ${money(safe.income)} · ${t('billsDue')} ${money(safe.billsDue)} · ${t(
+        'setAside'
+      )} ${money(safe.setAside)} · ${t('spent')} ${money(safe.spent)}`
+    : `${over ? t('overspent') : t('leftToSpend')}: ${money(Math.abs(left))} · ${periodState}${
+        isCurrent && perDay != null && !over ? ` · ${money(perDay)}/${t('perDay')}` : ''
+      } · ${t('income')} ${money(summary.income)} · ${t('spent')} ${money(summary.spent)}`
 
   const activeCats = summary.byCategory.filter((c) => c.spent > 0 || c.monthlyBudget != null)
   const unusedCats = summary.byCategory.filter((c) => !(c.spent > 0 || c.monthlyBudget != null))
@@ -75,6 +98,32 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
           </button>
         </div>
       </div>
+
+      {isCurrent && dayIndex <= 3 && planState === null && onPlan && (
+        <div className="card plan-prompt">
+          <div className="row gap" style={{ alignItems: 'flex-start' }}>
+            <div className="icon-badge">
+              <i className="ti ti-calendar-dollar" style={{ color: 'var(--gold)' }} aria-hidden="true"></i>
+            </div>
+            <div style={{ flex: 1 }}>
+              <p className="row-title" style={{ fontSize: 15 }}>{t('planPromptTitle')}</p>
+              <p className="row-sub" style={{ marginTop: 3 }}>{t('planPromptSub')}</p>
+              <div className="row gap" style={{ marginTop: 12 }}>
+                <button type="button" className="mini-button is-gold" onClick={onPlan}>
+                  {t('planIt')}
+                </button>
+                <button
+                  type="button"
+                  className="mini-button"
+                  onClick={async () => setPlanStateLocal(await setPlanState(nowKey, 'dismissed'))}
+                >
+                  {t('notNow')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="hero">
         <div className="dial-wrap" role="img" aria-label={dialLabel}>
@@ -141,18 +190,52 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
               })
             })()}
           </svg>
-          <div className="dial-center">
-            <p className="engraved">{over ? t('overspent') : t('leftToSpend')}</p>
-            <p className="hero-amount" style={{ color: over ? 'var(--danger)' : 'var(--gold)' }}>
-              {money(Math.abs(left))}
-            </p>
-            <p className="dial-sub">
-              {periodState}
-              {isCurrent && perDay != null && !over ? ` · ${money(perDay)}/${t('perDay')}` : ''}
-            </p>
-          </div>
+          {safe ? (
+            <div className="dial-center">
+              <p className="engraved">{over ? t('overBy') : showDaily ? t('safeToSpendToday') : t('safeToSpend')}</p>
+              <p className="hero-amount" style={{ color: over ? 'var(--danger)' : 'var(--gold)' }}>
+                {money(showDaily ? perDay : Math.abs(left))}
+              </p>
+              <p className="dial-sub">
+                {showDaily
+                  ? `${money(left)} ${t('untilDate')} ${endLabel} · ${daysRemaining} ${daysWord}`
+                  : over
+                    ? `${money(safe.billsDue + safe.setAside)} ${t('stillToCome')}`
+                    : `${t('untilDate')} ${endLabel} · ${periodState}`}
+              </p>
+            </div>
+          ) : (
+            <div className="dial-center">
+              <p className="engraved">{over ? t('overspent') : t('leftToSpend')}</p>
+              <p className="hero-amount" style={{ color: over ? 'var(--danger)' : 'var(--gold)' }}>
+                {money(Math.abs(left))}
+              </p>
+              <p className="dial-sub">
+                {periodState}
+                {isCurrent && perDay != null && !over ? ` · ${money(perDay)}/${t('perDay')}` : ''}
+              </p>
+            </div>
+          )}
         </div>
 
+          {safe ? (
+            <div className="stat-grid">
+              {[
+                ['var(--credit)', t('income'), safe.income],
+                ['var(--ink-3)', t('billsDue'), safe.billsDue],
+                ['var(--gold)', t('setAside'), safe.setAside],
+                ['var(--debit)', t('spent'), safe.spent]
+              ].map(([color, label, value]) => (
+                <span className="hero-stat" key={label}>
+                  <span className="hero-stat-label">
+                    <span className="dot" style={{ background: color }} aria-hidden="true" />
+                    {label}
+                  </span>
+                  <span className="hero-stat-value">{money(value)}</span>
+                </span>
+              ))}
+            </div>
+          ) : (
           <div className="hero-stats">
             <span className="hero-stat">
               <span className="dot" style={{ background: 'var(--credit)' }} aria-hidden="true" />
@@ -165,7 +248,82 @@ export default function Dashboard({ onAddTransaction, onSelectCategory }) {
               <span className="hero-stat-value">{money(summary.spent)}</span>
             </span>
           </div>
+          )}
       </div>
+
+      {goals.map(({ account: a, p }) => {
+        const r = 26
+        const circ = 2 * Math.PI * r
+        const byLabel = new Date(p.by + 'T00:00:00').toLocaleDateString(localeFor(language), { day: 'numeric', month: 'short' })
+        const status = p.reached ? t('goalReached') : p.onTrack ? t('onTrack') : t('behind')
+        const trip = a.goal?.tripSlug && tripsy?.trips?.find((x) => x.slug === a.goal.tripSlug)
+        const synced =
+          trip && tripsy.fetchedAt
+            ? new Date(tripsy.fetchedAt).toLocaleString(localeFor(language), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+            : ''
+        const open = trip && onOpenTrip ? () => onOpenTrip(trip.slug) : undefined
+        return (
+          <div
+            className={`card goal-card ${open ? 'is-link' : ''}`}
+            key={a.id}
+            role={open ? 'button' : 'group'}
+            tabIndex={open ? 0 : undefined}
+            onClick={open}
+            onKeyDown={open ? (e) => (e.key === 'Enter' || e.key === ' ') && open() : undefined}
+            aria-label={`${t('goal')} ${a.name}: ${money(p.current)} / ${money(p.target)} · ${status}`}
+          >
+            <svg viewBox="0 0 64 64" aria-hidden="true">
+              <circle cx="32" cy="32" r={r} fill="none" stroke="var(--rule-soft)" strokeWidth="4" />
+              <circle
+                cx="32"
+                cy="32"
+                r={r}
+                fill="none"
+                stroke="var(--gold)"
+                strokeWidth="4"
+                strokeLinecap="round"
+                strokeDasharray={`${circ * p.fraction} ${circ}`}
+                transform="rotate(-90 32 32)"
+              />
+              <text x="32" y="36.5" textAnchor="middle" fontSize="12.5" fontWeight="700" fill="var(--ink)">
+                {Math.round(p.fraction * 100)}%
+              </text>
+            </svg>
+            <div className="goal-body">
+              <div className="goal-head">
+                <span className="engraved">
+                  {t('goal')} · {a.name}
+                </span>
+                <span className={p.onTrack ? 'pill-ok' : 'pill-warn'}>{status}</span>
+              </div>
+              <p className="goal-amt">
+                {p.kind === 'debt' ? (
+                  <>
+                    {money(p.remaining)} <span>{t('leftToPay')}</span>
+                  </>
+                ) : (
+                  <>
+                    {money(p.current)} <span>{t('ofAmount')} {money(p.target)}</span>
+                  </>
+                )}
+              </p>
+              <p className="goal-line">
+                {p.reached
+                  ? `${t('byDate')} ${byLabel}`
+                  : p.hasBill && p.onTrack
+                    ? `${money(p.perPayday)} ${t('eachPayday')} · ${p.paydaysLeft} ${t('toGo')} · ${t('byDate')} ${byLabel}`
+                    : `${t('needs')} ${money(p.neededPerPayday)} ${t('eachPayday')} · ${p.paydaysLeft} ${t('toGo')} · ${t('byDate')} ${byLabel}`}
+              </p>
+              {trip && (
+                <p className="goal-src">
+                  <i className="ti ti-plane" aria-hidden="true"></i>
+                  {tf(language, 'tripTargetFrom', { when: synced })}
+                </p>
+              )}
+            </div>
+          </div>
+        )
+      })}
 
       {(() => {
         // Complications: the three most-consumed budgets as chronograph subdials.

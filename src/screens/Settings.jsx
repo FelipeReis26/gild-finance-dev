@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
+import { isNativeApp, saveBackupFile } from '../deviceStore.js'
 import { currencyOptions, iconOptions, exportBackup, importBackup, summarizeBackup, findImportDuplicates, getPasscode, setPasscode, clearPasscode, normalizePayRule, accountBalance, anchorFromReal, todayLocalDate, isExcludedFromTotals } from '../db.js'
-import { languageOptions, localeFor, formatMoney } from '../i18n.js'
+import { languageOptions, localeFor, formatMoney, tf } from '../i18n.js'
 import { changelog } from '../changelog.js'
+import { reminderPermission, askReminderPermission } from '../reminders.js'
+import { getReminderSettings, setReminderSettings } from '../db.js'
+import { tripShare } from '../tripsy.js'
 
 function BackButton({ onBack, label }) {
   return (
@@ -24,6 +28,8 @@ function MenuScreen({ onOpen, t }) {
     { key: 'cash', label: t('accountsTitle'), icon: 'ti-wallet' },
     { key: 'language', label: t('language'), icon: 'ti-language' },
     { key: 'categories', label: t('categoriesSettings'), icon: 'ti-tag' },
+    { key: 'reminders', label: t('reminders'), icon: 'ti-bell' },
+    { key: 'tripsy', label: 'Tripsy', icon: 'ti-plane' },
     { key: 'security', label: t('security'), icon: 'ti-lock' },
     { key: 'data', label: t('dataAndBackup'), icon: 'ti-database' },
     { key: 'about', label: t('about'), icon: 'ti-info-circle' }
@@ -519,6 +525,198 @@ function CategoriesScreen({ onBack, t }) {
   )
 }
 
+// Tripsy: connect with the access key (kept on this phone only), refresh,
+// and choose which savings goal follows which trip.
+function TripsyScreen({ onBack, t }) {
+  const { tripsy, refreshTripsy, disconnectTripsy, linkGoalToTrip, balances, currency, language } = useApp()
+  const [key, setKey] = useState('')
+  const [busy, setBusy] = useState(false)
+  const money = (v) => formatMoney(language, currency, v, { decimals: 0 })
+  const goals = balances.filter((a) => a.type === 'savings' && a.goal)
+  const errorText = { auth: t('tripsyBadKey'), network: t('tripsyOffline'), format: t('tripsyFormat') }[tripsy.error]
+  const updated = tripsy.fetchedAt
+    ? new Date(tripsy.fetchedAt).toLocaleString(localeFor(language), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    : ''
+
+  async function connect() {
+    if (!key.trim() || busy) return
+    setBusy(true)
+    const res = await refreshTripsy({ force: true, token: key.trim() })
+    setBusy(false)
+    if (res.ok) setKey('')
+  }
+
+  return (
+    <div className="screen">
+      <BackButton onBack={onBack} label={t('back')} />
+      <p className="section-title" style={{ marginTop: 4 }}>
+        Tripsy
+      </p>
+      {!tripsy.connected ? (
+        <div className="card">
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+            {t('tripsyIntro')}
+          </p>
+          <label className="field-label">{t('tripsyKey')}</label>
+          <input
+            type="password"
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder="••••••••"
+          />
+          {errorText && <p className="error-text">{errorText}</p>}
+          <button type="button" className="primary-button" onClick={connect} disabled={busy || !key.trim()}>
+            {busy ? t('tripsyConnecting') : t('tripsyConnect')}
+          </button>
+        </div>
+      ) : (
+        <div className="card">
+          <div className="row between">
+            <span className="row-title">{t('tripsyConnected')}</span>
+            <span className="pill-ok">{tf(language, 'tripsyTrips', { n: tripsy.trips.length })}</span>
+          </div>
+          <p className="row-sub" style={{ marginTop: 4 }}>
+            {tf(language, 'tripsyUpdated', { when: updated })}
+          </p>
+          {errorText && <p className="error-text">{errorText}</p>}
+          <div className="row gap" style={{ marginTop: 10, flexWrap: 'wrap' }}>
+            <button type="button" className="mini-button" disabled={tripsy.loading} onClick={() => refreshTripsy({ force: true })}>
+              {tripsy.loading ? t('tripsyConnecting') : t('tripsyRefresh')}
+            </button>
+            <button type="button" className="mini-button" onClick={disconnectTripsy}>
+              {t('tripsyDisconnect')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tripsy.trips.length > 0 && (
+        <>
+          <p className="section-title" style={{ marginBottom: -4 }}>
+            {t('tripsyTripsTitle')}
+          </p>
+          <div className="stack">
+            {tripsy.trips.map((trip) => {
+              const share = tripShare(trip)
+              // a goal can follow a trip that still has something to pay
+              const future = share.remaining > 0 && (!trip.end || trip.end >= new Date().toISOString().slice(0, 10))
+              const linked = goals.find((g) => g.goal.tripSlug === trip.slug)
+              const sub = future
+                ? tf(language, 'tripsyStillToPay', { amount: money(share.remaining) })
+                : share.paid
+                  ? share.split === 1
+                    ? tf(language, 'tripsyPaid', { amount: money(share.paid) })
+                    : tf(language, 'tripsyPaidYours', { amount: money(share.paid), mine: money(share.myPaid) })
+                  : t('tripsyNoCosts')
+              return (
+                <div className="list-row" key={trip.slug}>
+                  <div className="row between">
+                    <div style={{ minWidth: 0 }}>
+                      <p className="row-title">
+                        {trip.name} {trip.flag}
+                      </p>
+                      <p className="row-sub">{sub}</p>
+                    </div>
+                    <span className="pill-muted">{share.split ? `${Math.round(share.split * 100)}%` : '—'}</span>
+                  </div>
+                  {future && goals.length > 0 && (
+                    <label className="field-label" style={{ marginTop: 10 }}>
+                      {t('tripsyGoal')}
+                      <select
+                        value={linked?.id || ''}
+                        onChange={(e) => {
+                          if (linked && linked.id !== e.target.value) linkGoalToTrip(linked.id, null)
+                          if (e.target.value) linkGoalToTrip(e.target.value, trip.slug)
+                        }}
+                        style={{ marginTop: 6, marginBottom: 0 }}
+                      >
+                        <option value="">{t('tripsyNoGoal')}</option>
+                        {goals.map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {g.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// Phone reminders and in-app limit warnings. Opening this screen on the
+// iPhone is what asks iOS for notification permission, once.
+function RemindersScreen({ onBack, t }) {
+  const { rescheduleReminders } = useApp()
+  const [settings, setSettings] = useState(null)
+  const [permission, setPermission] = useState(null)
+
+  useEffect(() => {
+    getReminderSettings().then(setSettings)
+    ;(async () => {
+      let p = await reminderPermission()
+      if (p === 'prompt') p = await askReminderPermission()
+      setPermission(p)
+      if (p === 'granted') rescheduleReminders()
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function update(changes) {
+    setSettings(await setReminderSettings(changes))
+    rescheduleReminders()
+  }
+
+  if (!settings) return null
+  const rows = [
+    ['payday', t('remPayday'), t('remPaydaySub')],
+    ['bills', t('remBills'), t('remBillsSub')],
+    ['nothingLogged', t('remNothing'), t('remNothingSub')],
+    ['goals', t('remGoals'), t('remGoalsSub')],
+    ['limits', t('remLimits'), t('remLimitsSub')],
+    ['hideAmounts', t('remHide'), t('remHideSub')]
+  ]
+  return (
+    <div className="screen">
+      <BackButton onBack={onBack} label={t('back')} />
+      <p className="section-title" style={{ marginTop: 4 }}>
+        {t('reminders')}
+      </p>
+      {permission === 'denied' && <p className="error-text">{t('remDenied')}</p>}
+      {permission === 'unsupported' && <p className="muted" style={{ fontSize: 12, margin: 0 }}>{t('remBrowserOnly')}</p>}
+      <div className="stack">
+        {rows.map(([key, title, sub]) => (
+          <label key={key} className="list-row reminder-row">
+            <input type="checkbox" checked={!!settings[key]} onChange={(e) => update({ [key]: e.target.checked })} />
+            <span style={{ flex: 1 }}>
+              <span className="row-title" style={{ display: 'block' }}>{title}</span>
+              <span className="row-sub" style={{ display: 'block', marginTop: 2 }}>{sub}</span>
+            </span>
+          </label>
+        ))}
+        <label className="list-row reminder-row" style={{ alignItems: 'center' }}>
+          <i className="ti ti-clock" style={{ color: 'var(--ink-2)', fontSize: 18 }} aria-hidden="true"></i>
+          <span className="row-title" style={{ flex: 1 }}>{t('remTime')}</span>
+          <input
+            type="time"
+            value={settings.time}
+            onChange={(e) => e.target.value && update({ time: e.target.value })}
+            style={{ width: 'auto', marginBottom: 0 }}
+          />
+        </label>
+      </div>
+    </div>
+  )
+}
+
 function SecurityScreen({ onBack, t }) {
   const [hasCode, setHasCode] = useState(null)
   const [current, setCurrent] = useState('')
@@ -623,8 +821,16 @@ function DataScreen({ onBack, t }) {
   const [restorePreview, setRestorePreview] = useState(null) // { data, summary }
   const [importPreview, setImportPreview] = useState(null) // { list }
 
-  function downloadJson(data, filename) {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  // In the iPhone app a download link does nothing, so the file is saved
+  // into Gild's folder in the Files app instead (and, for an export, the
+  // share sheet opens so it can be sent anywhere).
+  async function downloadJson(data, filename, { share = false } = {}) {
+    const text = JSON.stringify(data, null, 2)
+    if (isNativeApp) {
+      await saveBackupFile(filename, text, { share })
+      return
+    }
+    const blob = new Blob([text], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -635,7 +841,11 @@ function DataScreen({ onBack, t }) {
 
   async function handleExport() {
     const data = await exportBackup()
-    downloadJson(data, `gild-backup-${new Date().toISOString().slice(0, 10)}.json`)
+    try {
+      await downloadJson(data, `gild-backup-${new Date().toISOString().slice(0, 10)}.json`, { share: true })
+    } catch {
+      setBackupMsg(t('backupSaveFailed'))
+    }
   }
 
   async function handleImportFileSelected(e) {
@@ -659,7 +869,15 @@ function DataScreen({ onBack, t }) {
     // right before it gets overwritten, in case the restore turns out
     // to be a mistake.
     const safety = await exportBackup()
-    downloadJson(safety, `gild-pre-restore-safety-backup-${new Date().toISOString().slice(0, 10)}.json`)
+    try {
+      await downloadJson(safety, `gild-pre-restore-safety-backup-${new Date().toISOString().slice(0, 10)}.json`)
+    } catch {
+      // No safety copy, no restore: replacing data without one is the
+      // mistake this step exists to prevent.
+      setRestorePreview(null)
+      setBackupMsg(t('backupSaveFailed'))
+      return
+    }
     await importBackup(restorePreview.data)
     await refresh()
     setRestorePreview(null)
@@ -710,7 +928,7 @@ function DataScreen({ onBack, t }) {
             {t('restoreBackup')}
           </button>
         </div>
-        <input type="file" accept="application/json" ref={fileRef} onChange={handleImportFileSelected} hidden />
+        <input type="file" ref={fileRef} onChange={handleImportFileSelected} hidden />
         {backupMsg && <p className="muted" style={{ marginTop: 10, marginBottom: 0, fontSize: 13 }}>{backupMsg}</p>}
       </div>
 
@@ -782,7 +1000,7 @@ function DataScreen({ onBack, t }) {
         >
           {t('importTransactionsTitle')}
         </button>
-        <input type="file" accept="application/json" ref={importRef} onChange={handleImportFileForTransactions} hidden />
+        <input type="file" ref={importRef} onChange={handleImportFileForTransactions} hidden />
         {importMsg && <p className="muted" style={{ marginTop: 10, marginBottom: 0, fontSize: 13 }}>{importMsg}</p>}
       </div>
 
@@ -958,6 +1176,18 @@ export default function Settings({ initialView }) {
     return (
       <SubScreenSwipeWrapper onBack={back}>
         <CategoriesScreen onBack={back} t={t} />
+      </SubScreenSwipeWrapper>
+    )
+  if (view === 'tripsy')
+    return (
+      <SubScreenSwipeWrapper onBack={back}>
+        <TripsyScreen onBack={back} t={t} />
+      </SubScreenSwipeWrapper>
+    )
+  if (view === 'reminders')
+    return (
+      <SubScreenSwipeWrapper onBack={back}>
+        <RemindersScreen onBack={back} t={t} />
       </SubScreenSwipeWrapper>
     )
   if (view === 'security')

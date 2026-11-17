@@ -2,5 +2,8 @@
   "appId": "com.felipe.financetracker",
   "appName": "GILD",
   "webDir": "dist",
-  "bundledWebRuntime": false
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#0E0F12"
+  }
 }

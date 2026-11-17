@@ -9,6 +9,9 @@ import AddBill from './screens/AddBill.jsx'
 import ScanImport from './screens/ScanImport.jsx'
 import Settings from './screens/Settings.jsx'
 import Balances from './screens/Balances.jsx'
+import Subscriptions from './screens/Subscriptions.jsx'
+import PaydayPlan from './screens/PaydayPlan.jsx'
+import TripDetail from './screens/TripDetail.jsx'
 import UndoToast from './components/UndoToast.jsx'
 import NoticeToast from './components/NoticeToast.jsx'
 import Lock from './screens/Lock.jsx'
@@ -27,7 +30,8 @@ function isMobileDevice() {
 export default function App() {
   const [tab, setTab] = useState('dashboard')
   const [navStack, setNavStack] = useState(['dashboard'])
-  const [overlay, setOverlay] = useState(null) // 'addTransaction' | 'addBill' | null
+  const [overlay, setOverlay] = useState(null) // 'addTransaction' | 'addBill' | 'plan' | 'trip' | null
+  const [tripSlug, setTripSlug] = useState(null) // which trip the 'trip' overlay shows
   const [editingTx, setEditingTx] = useState(null)
   const [editingBill, setEditingBill] = useState(null)
   const [categoryDrillDown, setCategoryDrillDown] = useState(null)
@@ -123,12 +127,22 @@ export default function App() {
               }}
             />
           )}
+          {overlay === 'plan' && <PaydayPlan onDone={closeOverlay} />}
+          {overlay === 'trip' && <TripDetail slug={tripSlug} />}
           {overlay === 'addBill' && (
             <AddBill prefill={editingBill} editingId={editingBill?.id} onDone={closeOverlay} />
           )}
 
           {!overlay && tab === 'dashboard' && (
-            <Dashboard onAddTransaction={() => setOverlay('addTransaction')} onSelectCategory={openCategory} />
+            <Dashboard
+              onAddTransaction={() => setOverlay('addTransaction')}
+              onSelectCategory={openCategory}
+              onPlan={() => setOverlay('plan')}
+              onOpenTrip={(slug) => {
+                setTripSlug(slug)
+                setOverlay('trip')
+              }}
+            />
           )}
           {!overlay && tab === 'transactions' && (
             <Transactions
@@ -138,11 +152,12 @@ export default function App() {
             />
           )}
           {!overlay && tab === 'bills' && (
-            <Bills onAddBill={() => setOverlay('addBill')} onEditBill={openEditBill} />
+            <Bills onAddBill={() => setOverlay('addBill')} onEditBill={openEditBill} onPlan={() => setOverlay('plan')} />
           )}
           {!overlay && tab === 'scan' && <ScanImport onConfirmed={() => setTab('dashboard')} />}
           {!overlay && tab === 'settings' && <Settings initialView={settingsInitialView} />}
           {!overlay && tab === 'balances' && <Balances />}
+          {!overlay && tab === 'subscriptions' && <Subscriptions />}
         </main>
 
         {!overlay && <NavBar active={tab} onChange={handleTabChange} />}

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
 import { findImportDuplicates, getMerchantMap, rememberMerchantCategory, lookupMerchantCategory } from '../db.js'
 import { scanImages, parseReceiptText, learnFromHistory } from '../receipt.js'
+import StatementImport from './StatementImport.jsx'
 
 export default function ScanImport({ onConfirmed }) {
   const { categories, transactions, addTransaction, t } = useApp()
@@ -10,6 +11,8 @@ export default function ScanImport({ onConfirmed }) {
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [results, setResults] = useState([])
   const [error, setError] = useState('')
+  // 'statement' while importing a bank statement instead of scanning
+  const [mode, setMode] = useState(null)
 
   function interpret(rawText, merchantMap, confidence) {
     const parsed = parseReceiptText(rawText)
@@ -102,21 +105,47 @@ export default function ScanImport({ onConfirmed }) {
     onConfirmed?.()
   }
 
+  if (mode === 'statement') {
+    return (
+      <StatementImport
+        onCancel={() => setMode(null)}
+        onDone={() => {
+          setMode(null)
+          onConfirmed?.()
+        }}
+      />
+    )
+  }
+
   if (!scanning && !results.length && !error) {
     return (
       <div className="screen">
-        <div className="card scan-drop">
-          <i className="ti ti-camera scan-icon" aria-hidden="true"></i>
-          <p className="section-title">{t('scanTitle')}</p>
-          <p className="muted center">{t('scanSubtitle')}</p>
-          <p className="muted center" style={{ fontSize: 12 }}>
-            {t('scanMultipleHint')}
-          </p>
-          <label className="primary-button file-button">
-            {t('chooseScreenshot')}
+        <div className="stack">
+          <label className="list-row scan-option">
+            <span className="icon-badge">
+              <i className="ti ti-camera" style={{ color: 'var(--gold)' }} aria-hidden="true"></i>
+            </span>
+            <span style={{ flex: 1 }}>
+              <span className="row-title" style={{ display: 'block' }}>{t('scanTitle')}</span>
+              <span className="row-sub" style={{ display: 'block', marginTop: 2 }}>{t('scanSubtitle')}</span>
+            </span>
+            <i className="ti ti-chevron-right" style={{ color: 'var(--ink-3)' }} aria-hidden="true"></i>
             <input type="file" accept="image/*" multiple onChange={handleFiles} hidden />
           </label>
+          <button type="button" className="list-row scan-option" onClick={() => setMode('statement')}>
+            <span className="icon-badge">
+              <i className="ti ti-file-spreadsheet" style={{ color: 'var(--gold)' }} aria-hidden="true"></i>
+            </span>
+            <span style={{ flex: 1 }}>
+              <span className="row-title" style={{ display: 'block' }}>{t('importTitle')}</span>
+              <span className="row-sub" style={{ display: 'block', marginTop: 2 }}>{t('importFormats')}</span>
+            </span>
+            <i className="ti ti-chevron-right" style={{ color: 'var(--ink-3)' }} aria-hidden="true"></i>
+          </button>
         </div>
+        <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+          {t('scanMultipleHint')}
+        </p>
       </div>
     )
   }

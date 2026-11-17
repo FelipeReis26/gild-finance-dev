@@ -43,6 +43,13 @@
   box-sizing: border-box;
 }
 
+/* Buttons don't inherit the text colour on their own: iOS draws their text
+   in system blue and desktop browsers in black. Any button whose class sets
+   a colour still overrides this. */
+button {
+  color: inherit;
+}
+
 body {
   margin: 0;
   font-family: var(--ui);
@@ -259,6 +266,11 @@ body {
 .secondary-button {
   flex: 1;
   height: 48px;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   font-size: 14px;
   font-weight: 500;
   background: var(--plate-2);
@@ -271,6 +283,17 @@ body {
 
 .file-button {
   cursor: pointer;
+}
+
+/* A secondary button on its own line (Back, Choose another file) is a full
+   row, the same size as the gold one above it. flex: 1 is for buttons side by
+   side; in a column it squashed the button to the height of its text. */
+.screen > .secondary-button,
+.scan-drop .secondary-button,
+.card > .secondary-button {
+  flex: none;
+  width: 100%;
+  height: 48px;
 }
 
 .mini-button {
@@ -1014,4 +1037,448 @@ input[type='date'] {
   color: var(--ink-3);
   vertical-align: 1px;
   white-space: nowrap;
+}
+
+/* Safe to spend: the four figures behind the dial's number, 2 × 2 */
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 16px;
+  width: 100%;
+}
+
+.stat-grid .hero-stat {
+  justify-content: space-between;
+  border-radius: 14px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.stat-grid .hero-stat-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Savings goal: a ring like the budget subdials, beside the figures */
+.goal-card {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 16px 18px;
+}
+
+.goal-card svg {
+  width: 74px;
+  height: 74px;
+  flex: 0 0 74px;
+  display: block;
+}
+
+.goal-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.goal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.goal-amt {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin: 6px 0 2px;
+}
+
+.goal-amt span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.goal-line {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin: 2px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.pill-ok,
+.pill-warn {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 99px;
+}
+
+.pill-ok {
+  color: var(--credit);
+  background: rgba(169, 201, 164, 0.12);
+}
+
+.pill-warn {
+  color: var(--danger-text);
+  background: rgba(199, 85, 70, 0.14);
+}
+
+/* Subscriptions: a list row that opens to show its actions */
+.list-row.sub-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.sub-main {
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sub-main .col-right {
+  align-items: flex-end;
+}
+
+.sub-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 52px;
+}
+
+.pill-muted {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 99px;
+  color: var(--ink-3);
+  background: var(--plate-2);
+}
+
+/* Settings → Reminders: a checkbox row */
+.reminder-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.reminder-row input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  margin: 3px 0 0;
+  accent-color: var(--gold);
+}
+
+/* Payday plan: rows of label + amount field, "Left to plan" pinned below */
+.plan-screen {
+  padding-bottom: 220px;
+}
+
+.plan-card {
+  padding: 4px 18px;
+}
+
+.plan-heading {
+  margin-bottom: -4px;
+}
+
+.plan-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-row + .plan-row {
+  border-top: 1px solid var(--rule-soft);
+}
+
+.plan-label {
+  display: block;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.plan-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+
+.plan-warn {
+  color: var(--danger-text);
+}
+
+.plan-fig {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.plan-input {
+  width: 96px;
+  flex: 0 0 96px;
+  height: 40px;
+  margin: 0;
+  text-align: right;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 0 10px;
+}
+
+.plan-link {
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--gold-light);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+.plan-footer {
+  /* runs to the bottom edge, under the overlay's Cancel button (48px high,
+     16px up, z-index 2), so nothing scrolls into view between the two */
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 18px 16px calc(72px + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, var(--bg) 14%);
+  z-index: 1;
+}
+
+.plan-left {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: var(--plate);
+  border: 1px solid var(--rule-gold);
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.plan-left b {
+  font-size: 22px;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-left.is-over {
+  border-color: rgba(199, 85, 70, 0.5);
+}
+
+.plan-left.is-over b {
+  color: var(--danger-text);
+}
+
+.plan-prompt {
+  border: 1px solid var(--rule-gold);
+}
+
+.mini-button.is-gold {
+  background: var(--gold);
+  color: var(--gold-text);
+  font-weight: 700;
+}
+
+/* Statement import */
+.scan-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.det-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.import-check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(169, 201, 164, 0.08);
+  border: 1px solid rgba(169, 201, 164, 0.25);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.import-check .ti {
+  font-size: 18px;
+  color: var(--credit);
+}
+
+.import-check.is-off {
+  background: rgba(199, 85, 70, 0.08);
+  border-color: rgba(199, 85, 70, 0.35);
+}
+
+.import-check.is-off .ti {
+  color: var(--danger-text);
+}
+
+.import-list {
+  padding: 6px 16px;
+}
+
+.import-day {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+  margin: 10px 0 0;
+}
+
+.import-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.import-row + .import-row {
+  border-top: 1px solid var(--rule-soft);
+}
+
+.import-row.is-skipped {
+  opacity: 0.45;
+}
+
+.import-name {
+  font-size: 14px;
+  color: var(--ink);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.import-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: var(--plate-2);
+  color: var(--ink-2);
+  margin-top: 4px;
+}
+
+.import-chip.gold {
+  background: rgba(201, 169, 106, 0.14);
+  color: var(--gold-light);
+}
+
+.import-chip.green {
+  background: rgba(169, 201, 164, 0.12);
+  color: var(--credit);
+}
+
+/* the chip is the picker: a native select laid invisibly over it */
+.import-chip.is-pick select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  margin: 0;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.import-amt {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.import-amt.is-in {
+  color: var(--credit);
+}
+
+/* Trips from Tripsy */
+.trip-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.trip-row + .trip-row {
+  border-top: 1px solid var(--rule-soft);
+}
+
+.trip-fig {
+  font-weight: 700;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 14px;
+}
+
+.trip-fig small {
+  display: block;
+  font-weight: 500;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.trip-link {
+  text-decoration: none;
+  width: 100%;
+  flex: none;
+}
+
+.goal-card.is-link {
+  cursor: pointer;
+}
+
+.goal-src {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-3);
+  margin: 6px 0 0;
 }

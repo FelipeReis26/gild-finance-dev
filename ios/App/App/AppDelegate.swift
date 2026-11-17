@@ -42,3 +42,55 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return config
     }
 }
+
+// MARK: - PDF text (Avant statements)
+//
+// Reads a PDF's text with iOS's own PDFKit and hands it back line by line
+// with positions, so the web side (src/pdfText.js) rebuilds rows the same way
+// it does from pdf.js. Done natively because pdf.js needs newer JavaScript
+// than the iOS 26 web view has. Nothing leaves the phone.
+import PDFKit
+
+@objc(PdfTextPlugin)
+public class PdfTextPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "PdfTextPlugin"
+    public let jsName = "PdfText"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "extract", returnType: CAPPluginReturnPromise)
+    ]
+
+    @objc func extract(_ call: CAPPluginCall) {
+        guard let base64 = call.getString("data"), let data = Data(base64Encoded: base64) else {
+            call.reject("No PDF data")
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let doc = PDFDocument(data: data) else {
+                call.reject("This file isn't a PDF Gild can open")
+                return
+            }
+            var pages: [[[String: Any]]] = []
+            for index in 0..<doc.pageCount {
+                guard let page = doc.page(at: index) else { continue }
+                var items: [[String: Any]] = []
+                if let selection = page.selection(for: page.bounds(for: .mediaBox)) {
+                    for line in selection.selectionsByLine() {
+                        let text = line.string ?? ""
+                        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
+                        let box = line.bounds(for: page)
+                        items.append(["str": text, "x": box.minX, "y": box.minY, "w": box.width])
+                    }
+                }
+                pages.append(items)
+            }
+            call.resolve(["pages": pages])
+        }
+    }
+}
+
+// The app's web view controller, so the PdfText plugin above gets registered.
+class MainViewController: CAPBridgeViewController {
+    override open func capacitorDidLoad() {
+        bridge?.registerPluginInstance(PdfTextPlugin())
+    }
+}

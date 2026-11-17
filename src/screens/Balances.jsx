@@ -4,7 +4,7 @@ import { latestEntry, previousEntry, todayLocalDate } from '../db.js'
 import { formatMoney } from '../i18n.js'
 
 export default function Balances() {
-  const { balances, categories, currency, language, addBalanceAccount, addBalanceEntry, addTransaction, removeBalanceAccount, t } =
+  const { balances, categories, currency, language, addBalanceAccount, addBalanceEntry, addTransaction, removeBalanceAccount, setBalanceGoal, t } =
     useApp()
   const money = (v) => formatMoney(language, currency, v)
 
@@ -21,6 +21,20 @@ export default function Balances() {
   // Money moving is a real transaction, so it is logged as one by default.
   const [alsoLog, setAlsoLog] = useState(true)
   const [moveCategory, setMoveCategory] = useState('')
+  // Goal editor for a savings card: { id, target, by }.
+  const [goalEdit, setGoalEdit] = useState(null)
+
+  async function saveGoal() {
+    const target = goalEdit.debt ? 0 : parseFloat(goalEdit.target)
+    if ((!goalEdit.debt && !(target > 0)) || !goalEdit.by) return
+    await setBalanceGoal(goalEdit.id, { target, by: goalEdit.by })
+    setGoalEdit(null)
+  }
+
+  async function removeGoal(id) {
+    await setBalanceGoal(id, null)
+    setGoalEdit(null)
+  }
 
   const expenseCats = categories.filter((c) => c.kind !== 'income' && !c.archived)
   const incomeCats = categories.filter((c) => c.kind === 'income' && !c.archived)
@@ -232,6 +246,36 @@ export default function Balances() {
                       </>
                     )}
                   </>
+                ) : goalEdit?.id === a.id ? (
+                  <>
+                    {a.type === 'savings' && (
+                      <>
+                        <label className="field-label">{t('goalTarget')}</label>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          placeholder="0.00"
+                          value={goalEdit.target}
+                          onChange={(e) => setGoalEdit({ ...goalEdit, target: e.target.value })}
+                        />
+                      </>
+                    )}
+                    <label className="field-label">{a.type === 'debt' ? t('payOffBy') : t('goalDate')}</label>
+                    <input type="date" value={goalEdit.by} onChange={(e) => setGoalEdit({ ...goalEdit, by: e.target.value })} />
+                    <div className="row gap" style={{ flexWrap: 'wrap' }}>
+                      <button type="button" className="mini-button" onClick={saveGoal}>
+                        {t('save')}
+                      </button>
+                      {a.goal && (
+                        <button type="button" className="mini-button" onClick={() => removeGoal(a.id)}>
+                          {t('removeGoal')}
+                        </button>
+                      )}
+                      <button type="button" className="mini-button" onClick={() => setGoalEdit(null)} aria-label="Cancel">
+                        <i className="ti ti-x" aria-hidden="true"></i>
+                      </button>
+                    </div>
+                  </>
                 ) : (
                   <div className="row gap" style={{ flexWrap: 'wrap' }}>
                     <button type="button" className="mini-button" onClick={() => beginUpdate(a, 'movement')}>
@@ -240,6 +284,22 @@ export default function Balances() {
                     {a.type !== 'owed' && (
                       <button type="button" className="mini-button" onClick={() => beginUpdate(a, 'reading')}>
                         {t('updateBalance')}
+                      </button>
+                    )}
+                    {(a.type === 'savings' || a.type === 'debt') && (
+                      <button
+                        type="button"
+                        className="mini-button"
+                        onClick={() =>
+                          setGoalEdit({
+                            id: a.id,
+                            debt: a.type === 'debt',
+                            target: a.goal ? String(a.goal.target) : '',
+                            by: a.goal?.by || ''
+                          })
+                        }
+                      >
+                        {a.goal ? t('editGoal') : t('setGoal')}
                       </button>
                     )}
                     <button type="button" className="mini-button" onClick={() => removeBalanceAccount(a.id)}>

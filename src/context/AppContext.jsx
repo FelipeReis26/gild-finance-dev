@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import * as db from '../db.js'
-import { formatMoney, t as translate } from '../i18n.js'
+import { formatMoney, localeFor, t as translate, tf } from '../i18n.js'
+import { syncReminders } from '../reminders.js'
+import { fetchTrips, getTripsyToken, setTripsyToken, tripShare, isStale, TripsyError } from '../tripsy.js'
 
 const AppContext = createContext(null)
 
@@ -38,12 +40,13 @@ export function AppProvider({ children }) {
   // A one-off confirmation for something the app did on its own — currently
   // only an auto-linked balance being brought down. Separate from undoState
   // because there is nothing to undo, it just should not happen invisibly.
-  const [notice, setNotice] = useState(null) // { text } | null
+  // Also carries limit warnings: { text, sub?, kind?: 'near' | 'over', fraction? }.
+  const [notice, setNotice] = useState(null) // { text, ... } | null
   const noticeTimer = useRef(null)
-  const showNotice = useCallback((text) => {
+  const showNotice = useCallback((text, extra = {}) => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current)
-    setNotice({ text })
-    noticeTimer.current = setTimeout(() => setNotice(null), 5000)
+    setNotice({ text, ...extra })
+    noticeTimer.current = setTimeout(() => setNotice(null), extra.kind ? 6500 : 5000)
   }, [])
   const dismissNotice = useCallback(() => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current)
@@ -121,22 +124,62 @@ export function AppProvider({ children }) {
     [language, currency, showNotice]
   )
 
+  // Limit warnings: the current period's summary before and after a change;
+  // if the change pushed a category past 80% of its limit, or over it, say
+  // so straight away. A balance notice wins if both apply (it's rarer and
+  // says something the app did by itself).
+  const periodSnapshot = useCallback(async () => {
+    const settings = await db.getReminderSettings()
+    if (!settings.limits) return null
+    const key = db.currentPeriodKey(payDay)
+    return { key, summary: await db.getMonthSummary(key, payDay) }
+  }, [payDay])
+
+  const announceLimit = useCallback(
+    async (before, categoryId) => {
+      if (!before || !categoryId) return
+      const after = await db.getMonthSummary(before.key, payDay)
+      const c = db.budgetCrossing(before.summary, after, categoryId)
+      if (!c) return
+      const { end } = db.periodBounds(before.key, payDay)
+      const [y, m, d] = db.todayLocalDate().split('-').map(Number)
+      const days = Math.max(1, Math.round((end.getTime() - Date.UTC(y, m - 1, d)) / 86400000) + 1)
+      const money = (v, decimals = 0) => formatMoney(language, currency, v, { decimals })
+      const vars = { name: c.name, spent: money(c.spent), budget: money(c.budget), days }
+      if (c.level === 'over') {
+        showNotice(tf(language, 'limitOver', vars), { sub: tf(language, 'limitOverSub', vars), kind: 'over' })
+      } else {
+        const perDay = Math.max(0, c.budget - c.spent) / days
+        showNotice(tf(language, 'limitNear', vars), {
+          sub: tf(language, 'limitNearSub', { ...vars, pct: Math.round(c.fraction * 100), perDay: money(perDay) }),
+          kind: 'near',
+          fraction: c.fraction
+        })
+      }
+    },
+    [payDay, language, currency, showNotice]
+  )
+
   const addTransaction = useCallback(
     async (tx) => {
+      const before = await periodSnapshot()
       const saved = await db.addTransaction(tx)
       await refresh()
-      announceAutoBalance(saved)
+      if (saved?._autoBalance) announceAutoBalance(saved)
+      else await announceLimit(before, saved?.categoryId)
     },
-    [refresh, announceAutoBalance]
+    [refresh, announceAutoBalance, periodSnapshot, announceLimit]
   )
 
   const editTransaction = useCallback(
     async (txId, updates) => {
+      const before = await periodSnapshot()
       const saved = await db.updateTransaction(txId, updates)
       await refresh()
-      announceAutoBalance(saved)
+      if (saved?._autoBalance) announceAutoBalance(saved)
+      else await announceLimit(before, saved?.categoryId)
     },
-    [refresh, announceAutoBalance]
+    [refresh, announceAutoBalance, periodSnapshot, announceLimit]
   )
 
   const removeTransaction = useCallback(
@@ -156,17 +199,17 @@ export function AppProvider({ children }) {
   // db call inside one ran twice: Undo restored the transaction twice over,
   // and once a category could auto-adjust a balance it applied the payment
   // twice too.
-  const [undoState, setUndoState] = useState(null) // { tx } | null
+  const [undoState, setUndoState] = useState(null) // { tx, links } | null
   const undoTimer = useRef(null)
 
   const deleteTransactionWithUndo = useCallback(
     async (txId) => {
       const txToDelete = transactions.find((t) => t.id === txId)
-      await db.deleteTransaction(txId)
+      const links = await db.deleteTransaction(txId)
       await refresh()
       if (!txToDelete) return
       if (undoTimer.current) clearTimeout(undoTimer.current)
-      setUndoState({ tx: txToDelete })
+      setUndoState({ tx: txToDelete, links })
       undoTimer.current = setTimeout(() => setUndoState(null), 6000)
     },
     [refresh, transactions]
@@ -177,10 +220,9 @@ export function AppProvider({ children }) {
     const pending = undoState?.tx
     setUndoState(null)
     if (!pending) return
-    // Drop the id and the auto-link bookkeeping: the restored row is a new
-    // record and earns a fresh balance entry rather than claiming the old one.
-    const { id, autoBalanceAccountId, autoBalanceEntryId, ...rest } = pending
-    const saved = await db.addTransaction(rest)
+    // Put back exactly what the delete took away: the row, any bill it paid,
+    // and the Balances card it moved (a fresh entry, not the removed one).
+    const saved = await db.restoreTransaction(pending, undoState.links)
     await refresh()
     announceAutoBalance(saved)
   }, [undoState, refresh, announceAutoBalance])
@@ -347,6 +389,14 @@ export function AppProvider({ children }) {
     [refresh]
   )
 
+  const setBalanceGoal = useCallback(
+    async (accountId, goal) => {
+      await db.setBalanceGoal(accountId, goal)
+      await refresh()
+    },
+    [refresh]
+  )
+
   const removeBalanceAccount = useCallback(
     async (accountId) => {
       await db.deleteBalanceAccount(accountId)
@@ -354,6 +404,105 @@ export function AppProvider({ children }) {
     },
     [refresh]
   )
+
+  // Phone reminders follow the data: whenever anything they depend on
+  // changes (and on every launch), the whole set is worked out again and
+  // rescheduled, a moment later so a burst of edits reschedules once.
+  const rescheduleReminders = useCallback(async () => {
+    const settings = await db.getReminderSettings()
+    const [txs, billList, cats, bals] = await Promise.all([db.getTransactions(), db.getBills(), db.getCategories(), db.getBalances()])
+    const plan = db.planReminders({
+      bills: billList,
+      categories: cats,
+      balances: bals,
+      transactions: txs,
+      payDay,
+      settings,
+      text: (key, vars) => tf(language, key, vars),
+      money: (v) => formatMoney(language, currency, v, { decimals: Number.isInteger(v) ? 0 : 2 }),
+      weekday: (iso) => new Date(iso + 'T00:00:00').toLocaleDateString(localeFor(language), { weekday: 'long' })
+    })
+    try {
+      return await syncReminders(plan)
+    } catch (err) {
+      console.error('Gild: scheduling reminders failed', err)
+      return 0
+    }
+  }, [payDay, language, currency])
+
+  useEffect(() => {
+    if (!ready) return
+    const timer = setTimeout(() => rescheduleReminders(), 1500)
+    return () => clearTimeout(timer)
+  }, [ready, transactions, bills, balances, categories, payDay, language, currency, rescheduleReminders])
+
+  // Tripsy: the trips last read (kept for offline), and a refresh that reads
+  // them again, saves them and moves any goal that follows a trip.
+  const [tripsy, setTripsy] = useState({ trips: [], fetchedAt: null, connected: false, error: null, loading: false })
+  // the latest refresh, so a Tripsy read that finishes later doesn't refresh
+  // with the month that was showing when it started
+  const refreshRef = useRef(refresh)
+  refreshRef.current = refresh
+
+  const refreshTripsy = useCallback(
+    async ({ force = false, token } = {}) => {
+      const key = token ?? getTripsyToken()
+      const cache = await db.getTripsyCache()
+      if (!key) {
+        setTripsy({ trips: [], fetchedAt: null, connected: false, error: null, loading: false })
+        return { ok: false, kind: 'none' }
+      }
+      if (!force && cache && !isStale(cache.fetchedAt)) {
+        setTripsy({ trips: cache.trips, fetchedAt: cache.fetchedAt, connected: true, error: null, loading: false })
+        return { ok: true, cached: true }
+      }
+      setTripsy((t) => ({ ...t, loading: true }))
+      try {
+        const trips = await fetchTrips(key)
+        const saved = await db.saveTripsyCache(trips)
+        await db.syncTripGoals(trips, (trip) => tripShare(trip).remaining)
+        if (token) setTripsyToken(token)
+        setTripsy({ trips, fetchedAt: saved.fetchedAt, connected: true, error: null, loading: false })
+        await refreshRef.current()
+        return { ok: true }
+      } catch (err) {
+        const kind = err instanceof TripsyError ? err.kind : 'network'
+        // a refused key on connect isn't kept; a failed refresh keeps what was read before
+        setTripsy({
+          trips: token ? [] : cache?.trips || [],
+          fetchedAt: token ? null : cache?.fetchedAt || null,
+          connected: !token && Boolean(getTripsyToken()),
+          error: kind,
+          loading: false
+        })
+        return { ok: false, kind }
+      }
+    },
+    []
+  )
+
+  const disconnectTripsy = useCallback(async () => {
+    setTripsyToken('')
+    await db.clearTripsyCache()
+    setTripsy({ trips: [], fetchedAt: null, connected: false, error: null, loading: false })
+  }, [])
+
+  const linkGoalToTrip = useCallback(
+    async (accountId, slug) => {
+      await db.linkGoalToTrip(accountId, slug)
+      const cache = await db.getTripsyCache()
+      if (slug && cache) await db.syncTripGoals(cache.trips, (trip) => tripShare(trip).remaining)
+      await refresh()
+    },
+    [refresh]
+  )
+
+  // On launch (and at most hourly), read Tripsy again if it's connected.
+  useEffect(() => {
+    if (!ready) return
+    refreshTripsy()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready])
 
   const periodLabel = selectedMonth ? db.periodLabel(selectedMonth, payDay, language) : ''
 
@@ -405,6 +554,12 @@ export function AppProvider({ children }) {
         changeCurrency,
         addBalanceAccount,
         addBalanceEntry,
+        setBalanceGoal,
+        rescheduleReminders,
+        tripsy,
+        refreshTripsy,
+        disconnectTripsy,
+        linkGoalToTrip,
         removeBalanceAccount,
         refresh
       }}

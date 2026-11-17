@@ -10,20 +10,25 @@
     "cap:add:ios": "npx cap add ios",
     "cap:add:android": "npx cap add android",
     "cap:sync": "npm run build && npx cap sync",
-    "test": "node tests/receipt.test.mjs && node tests/payrule.test.mjs && node tests/transfer.test.mjs && node tests/autolink.test.mjs"
+    "test": "node tests/receipt.test.mjs && node tests/payrule.test.mjs && node tests/transfer.test.mjs && node tests/autolink.test.mjs && node tests/billtransfer.test.mjs && node tests/safespend.test.mjs && node tests/subscriptions.test.mjs && node tests/reminders.test.mjs && node tests/planning.test.mjs && node tests/statements.test.mjs && node tests/tripsy.test.mjs && node tests/review.test.mjs",
+    "ios": "npm run build && npx cap sync ios && npx cap open ios",
+    "ios:sync": "npm run build && npx cap sync ios"
   },
   "dependencies": {
-    "@capacitor-community/sqlite": "^8.1.1",
-    "@capacitor/core": "^8.5.0",
-    "@capacitor/ios": "^8.5.0",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/ios": "^8.6.2",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@capacitor/share": "^8.0.3",
     "@tabler/icons-webfont": "^3.46.0",
+    "pdfjs-dist": "^5.7.284",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.5.0",
+    "@capacitor/cli": "^8.6.2",
     "@vitejs/plugin-react": "^4.3.1",
     "vite": "^5.4.2"
   }

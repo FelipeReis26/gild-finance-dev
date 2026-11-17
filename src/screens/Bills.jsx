@@ -1,15 +1,17 @@
 import { useApp } from '../context/AppContext.jsx'
-import { billDateWithinPeriod } from '../db.js'
+import { billDateWithinPeriod, billAppliesTo } from '../db.js'
 import { formatMoney, localeFor } from '../i18n.js'
 
-export default function Bills({ onAddBill, onEditBill }) {
-  const { bills, categories, currency, language, selectedMonth, changeMonth, payDay, payBill, unpayBill, removeBill, periodLabel, t } =
+export default function Bills({ onAddBill, onEditBill, onPlan }) {
+  const { bills: allBills, categories, currency, language, selectedMonth, changeMonth, payDay, payBill, unpayBill, removeBill, periodLabel, t } =
     useApp()
   // Bills carry exact amounts (a €15.99 subscription must not read €16).
   const money = (v) => formatMoney(language, currency, v, { decimals: 2 })
   const shortDate = (iso) =>
     new Date(iso + 'T00:00:00').toLocaleDateString(localeFor(language), { day: 'numeric', month: 'short' })
   const categoryById = Object.fromEntries(categories.map((c) => [c.id, c]))
+  // A bill set up partway through (startPeriod) isn't due in earlier periods.
+  const bills = allBills.filter((b) => billAppliesTo(b, selectedMonth))
 
   const dueCount = bills.filter((b) => !b.payments[selectedMonth]).length
   const total = bills.reduce((sum, b) => sum + b.amount, 0)
@@ -105,6 +107,11 @@ export default function Bills({ onAddBill, onEditBill }) {
         })}
       </div>
 
+      {onPlan && (
+        <button type="button" className="secondary-button" onClick={onPlan}>
+          <i className="ti ti-calendar-dollar" aria-hidden="true"></i> {t('planOpen')}
+        </button>
+      )}
       <button type="button" className="primary-button" onClick={onAddBill}>
         <i className="ti ti-plus" aria-hidden="true"></i> {t('addBill')}
       </button>

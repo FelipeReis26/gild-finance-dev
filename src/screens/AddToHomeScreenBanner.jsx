@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import * as db from '../db.js'
 import { t as translate } from '../i18n.js'
+import { isNativeApp } from '../deviceStore.js'
 
 function isStandalone() {
   return (
+    // Already the iPhone app, so there's nothing to add to the home screen.
+    isNativeApp ||
     window.navigator.standalone === true ||
     (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
   )

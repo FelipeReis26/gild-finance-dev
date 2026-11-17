@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
 
 // App chrome: a fixed top bar (hamburger + wordmark) and a slide-in
-// drawer holding all six destinations. The drawer is the collapsable
+// drawer holding every destination. The drawer is the collapsable
 // menu this app always wanted: out of the way until asked for, then
 // every screen one tap away.
 export default function NavBar({ active, onChange }) {
@@ -16,6 +16,7 @@ export default function NavBar({ active, onChange }) {
     { key: 'transactions', label: t('navActivity'), icon: 'ti-list' },
     { key: 'bills', label: t('navBills'), icon: 'ti-file-invoice' },
     { key: 'balances', label: t('navBalances'), icon: 'ti-scale' },
+    { key: 'subscriptions', label: t('navSubscriptions'), icon: 'ti-repeat' },
     { key: 'scan', label: t('navScan'), icon: 'ti-camera' },
     { key: 'settings', label: t('navSettings'), icon: 'ti-settings' }
   ]

@@ -26,6 +26,10 @@ const KEYS = {
   cash: 'ft_cash',
   accounts: 'ft_accounts',
   a2hsDismissed: 'ft_a2hs_dismissed',
+  hiddenSubscriptions: 'ft_hidden_subscriptions',
+  reminders: 'ft_reminders',
+  plans: 'ft_plans',
+  tripsy: 'ft_tripsy',
   schemaVersion: 'ft_schema_version'
 }
 
@@ -868,6 +872,9 @@ export async function getTransactions() {
 // rewrite a debt's history in bulk with no way to see what it did.
 
 function applyAutoBalance(record) {
+  // A bill or import that already moved its Balances card says so; moving a
+  // category-linked debt as well would take the same payment off twice.
+  if (record.autoBalanceEntryId) return { record }
   if (record.type !== 'expense') return { record }
   const cat = loadCategoriesRaw().find((c) => c.id === record.categoryId)
   if (!cat?.linkedBalanceAccountId) return { record }
@@ -911,6 +918,56 @@ export async function addTransaction(tx) {
   // `_autoBalance` is on the returned object only, never stored — it exists so
   // the screen that saved can confirm the balance it quietly changed.
   return effect ? { ...toDisplayTransaction(record), _autoBalance: effect } : toDisplayTransaction(record)
+}
+
+// Statement import (see statements.js): saves the rows marked new, links any
+// bill a row pays (and moves its Balances card, like tapping Paid does), and
+// keeps the bank's own text in bankNote so the next import recognises the
+// shop even after the note has been tidied.
+export async function importStatementRows(rows) {
+  const list = loadTransactionsRaw()
+  const cats = loadCategoriesRaw()
+  const bills = loadBillsRaw()
+  const balances = loadBalancesRaw()
+  let added = 0
+  let billsMarked = 0
+  for (const r of rows || []) {
+    if (r.status && r.status !== 'new') continue
+    const record = withTransferFlag(
+      {
+        id: id(),
+        type: r.type,
+        amount: toCents(r.amount),
+        categoryId: r.categoryId,
+        date: r.date,
+        note: r.note,
+        ...(r.bankNote ? { bankNote: r.bankNote } : {}),
+        accountId: r.accountId,
+        source: 'import',
+        ...(r.transfer ? { transfer: true } : {}),
+        ...(r.counterAccountId ? { counterAccountId: r.counterAccountId } : {})
+      },
+      cats
+    )
+    const bill = r.billId && bills.find((b) => b.id === r.billId)
+    if (bill && r.billPeriod && !bill.payments?.[r.billPeriod]) {
+      bill.payments = bill.payments || {}
+      bill.payments[r.billPeriod] = { paidDate: r.date, transactionId: record.id }
+      billsMarked++
+      const pot = bill.balanceAccountId && balances.find((a) => a.id === bill.balanceAccountId)
+      if (pot && (pot.type === 'savings' || pot.type === 'debt')) {
+        const entry = addPotEntry(pot, record.amount, r.date)
+        record.autoBalanceAccountId = pot.id
+        record.autoBalanceEntryId = entry.id
+      }
+    }
+    list.push(record)
+    added++
+  }
+  save(KEYS.transactions, list)
+  save(KEYS.bills, bills)
+  save(KEYS.balances, balances)
+  return { added, billsMarked }
 }
 
 // Bulk import: adds a batch of transactions on top of what's already
@@ -973,13 +1030,67 @@ export async function updateTransaction(txId, updates) {
   return effect ? { ...toDisplayTransaction(tx), _autoBalance: effect } : toDisplayTransaction(tx)
 }
 
+// Deleting a row that paid a bill also un-pays that bill (otherwise the bill
+// would stay ticked off by a row that no longer exists, and safe to spend
+// would stop counting it). Returns what it unlinked, so Undo can put it back.
 export async function deleteTransaction(txId) {
   const list = loadTransactionsRaw()
-  reverseAutoBalance(list.find((t) => t.id === txId))
+  const record = list.find((t) => t.id === txId)
+  reverseAutoBalance(record)
+  const bills = loadBillsRaw()
+  const billLinks = []
+  for (const b of bills) {
+    for (const [period, p] of Object.entries(b.payments || {})) {
+      if (p?.transactionId === txId) {
+        billLinks.push({ billId: b.id, period, paidDate: p.paidDate })
+        delete b.payments[period]
+      }
+    }
+  }
+  if (billLinks.length) save(KEYS.bills, bills)
   save(
     KEYS.transactions,
     list.filter((t) => t.id !== txId)
   )
+  return { billLinks, potAccountId: record?.autoBalanceAccountId || null }
+}
+
+// Undo of a delete: the same row back with its id, its bill payments
+// re-linked, and its Balances card moved again (by the bill/import route, or
+// by a category link, exactly as the first time).
+export async function restoreTransaction(tx, { billLinks = [], potAccountId = null } = {}) {
+  const list = loadTransactionsRaw()
+  const { autoBalanceAccountId, autoBalanceEntryId, ...rest } = tx
+  let record = withTransferFlag({ ...rest, amount: toCents(tx.amount) }, loadCategoriesRaw())
+  if (list.some((t) => t.id === record.id)) record.id = id()
+  let effect = null
+  if (potAccountId) {
+    const balances = loadBalancesRaw()
+    const pot = balances.find((a) => a.id === potAccountId)
+    if (pot && (pot.type === 'savings' || pot.type === 'debt')) {
+      const entry = addPotEntry(pot, record.amount, record.date)
+      save(KEYS.balances, balances)
+      record = { ...record, autoBalanceAccountId: pot.id, autoBalanceEntryId: entry.id }
+    }
+  } else {
+    const applied = applyAutoBalance(record)
+    record = applied.record
+    effect = applied.effect
+  }
+  list.push(record)
+  save(KEYS.transactions, list)
+  if (billLinks.length) {
+    const bills = loadBillsRaw()
+    for (const l of billLinks) {
+      const b = bills.find((x) => x.id === l.billId)
+      if (b && !b.payments?.[l.period]) {
+        b.payments = b.payments || {}
+        b.payments[l.period] = { paidDate: l.paidDate, transactionId: record.id }
+      }
+    }
+    save(KEYS.bills, bills)
+  }
+  return effect ? { ...toDisplayTransaction(record), _autoBalance: effect } : toDisplayTransaction(record)
 }
 
 // --- Bills -------------------------------------------------------
@@ -1014,7 +1125,8 @@ function loadBillsRaw() {
 }
 
 function toDisplayBill(b) {
-  return { ...b, amount: fromCents(b.amount) }
+  // minAmount: the least a set-aside bill may be planned at (a card payment).
+  return { ...b, amount: fromCents(b.amount), ...(b.minAmount != null ? { minAmount: fromCents(b.minAmount) } : {}) }
 }
 
 export async function getBills() {
@@ -1066,6 +1178,19 @@ export async function deleteBill(billId) {
   )
 }
 
+// Moves a Balances savings or debt card by a payment: savings go up, a debt
+// comes down. The entry is dated no earlier than the card's newest reading,
+// so a back-dated payment (last month's bill paid today, an older row in an
+// import) still becomes the latest figure instead of hiding behind it.
+function addPotEntry(pot, cents, date) {
+  const latest = latestEntry(pot)
+  const value = pot.type === 'savings' ? (latest?.value ?? 0) + cents : Math.max(0, (latest?.value ?? 0) - cents)
+  const when = latest && latest.date > date ? latest.date : date
+  const entry = { id: id(), date: when, value, auto: true }
+  pot.entries.push(entry)
+  return entry
+}
+
 export async function markBillPaid(billId, monthPrefix) {
   const bills = loadBillsRaw()
   const bill = bills.find((b) => b.id === billId)
@@ -1075,13 +1200,36 @@ export async function markBillPaid(billId, monthPrefix) {
   const isCurrentPeriod = monthPrefix === currentPeriodKey(payDay)
   const paidDate = isCurrentPeriod ? todayLocal() : billDateWithinPeriod(monthPrefix, payDay, bill.dueDay)
 
+  // A bill can be a standing transfer into a savings pot (money set aside each
+  // payday). It then names the account the money leaves, the account it lands
+  // in, and optionally the Balances savings card it adds to. The new card
+  // entry is recorded on the transaction the same way an auto-balance is, so
+  // marking the bill unpaid (which deletes the transaction) takes it back off.
+  const extra = {}
+  if (bill.accountId) extra.accountId = bill.accountId
+  const cat = loadCategoriesRaw().find((c) => c.id === bill.categoryId)
+  if (cat?.transfer && bill.counterAccountId && bill.counterAccountId !== bill.accountId) {
+    extra.counterAccountId = bill.counterAccountId
+  }
+  if (bill.balanceAccountId) {
+    const balances = loadBalancesRaw()
+    const pot = balances.find((a) => a.id === bill.balanceAccountId)
+    if (pot && (pot.type === 'savings' || pot.type === 'debt')) {
+      const entry = addPotEntry(pot, bill.amount, paidDate)
+      save(KEYS.balances, balances)
+      extra.autoBalanceAccountId = pot.id
+      extra.autoBalanceEntryId = entry.id
+    }
+  }
+
   const record = await addTransaction({
     amount: fromCents(bill.amount),
     categoryId: bill.categoryId,
     date: paidDate,
     note: bill.name,
     type: 'expense',
-    source: 'bill'
+    source: 'bill',
+    ...extra
   })
 
   bill.payments[monthPrefix] = { paidDate, transactionId: record.id }
@@ -1101,6 +1249,501 @@ export async function markBillUnpaid(billId, monthPrefix) {
   delete bill.payments[monthPrefix]
   save(KEYS.bills, bills)
   return toDisplayBill(bill)
+}
+
+// A bill can start partway through the history (a new savings transfer set
+// up today shouldn't read as missed in every earlier period). `startPeriod`
+// is the first period key it applies to; bills without one always apply.
+export function billAppliesTo(bill, periodKey) {
+  return !bill?.startPeriod || periodKey >= bill.startPeriod
+}
+
+// --- Safe to spend ---------------------------------------------------
+// What can still be spent this period without missing a bill or the money
+// set aside: income in, minus what's been spent, minus bills not paid yet,
+// minus every transfer bill (money moved into savings). A paid ordinary bill
+// is already inside `spent`; a transfer bill never is, paid or not, because
+// transfers stay out of spending, so it is taken off separately.
+// Takes and returns display units (decimal money), like the summary.
+export function safeToSpend({ income, spent }, bills, categories, periodKey) {
+  const transferCat = new Set((categories || []).filter((c) => c.transfer).map((c) => c.id))
+  let billsDueCents = 0
+  let billsDueCount = 0
+  let setAsideCents = 0
+  for (const b of bills || []) {
+    if (!billAppliesTo(b, periodKey)) continue
+    const amount = toCents(b.amount)
+    if (transferCat.has(b.categoryId)) setAsideCents += amount
+    else if (!b.payments?.[periodKey]) {
+      billsDueCents += amount
+      billsDueCount++
+    }
+  }
+  const safeCents = toCents(income) - toCents(spent) - billsDueCents - setAsideCents
+  return {
+    income,
+    spent,
+    billsDue: fromCents(billsDueCents),
+    billsDueCount,
+    setAside: fromCents(setAsideCents),
+    safe: fromCents(safeCents)
+  }
+}
+
+// --- Tripsy -------------------------------------------------------------
+// The last trips read from Tripsy (see tripsy.js), kept so the app works
+// offline, and the goals that follow a trip: their target is your share
+// of what's still to pay for it, updated whenever the trips are read.
+export async function getTripsyCache() {
+  return load(KEYS.tripsy, null)
+}
+
+export async function saveTripsyCache(trips) {
+  const cache = { fetchedAt: new Date().toISOString(), trips }
+  save(KEYS.tripsy, cache)
+  return cache
+}
+
+export async function clearTripsyCache() {
+  localStorage.removeItem(KEYS.tripsy)
+}
+
+export async function linkGoalToTrip(accountId, slug) {
+  const accounts = loadBalancesRaw()
+  const account = accounts.find((a) => a.id === accountId)
+  if (!account?.goal) return null
+  if (slug) account.goal.tripSlug = slug
+  else delete account.goal.tripSlug
+  save(KEYS.balances, accounts)
+  return toDisplayBalanceAccount(account)
+}
+
+// remainingFor(trip) → euros still to pay (his share). Returns how many goal
+// targets changed.
+export async function syncTripGoals(trips, remainingFor) {
+  const accounts = loadBalancesRaw()
+  let changed = 0
+  for (const a of accounts) {
+    const slug = a.goal?.tripSlug
+    if (!slug) continue
+    const trip = (trips || []).find((t) => t.slug === slug)
+    if (!trip) continue
+    const target = toCents(remainingFor(trip))
+    if (target > 0 && target !== a.goal.target) {
+      a.goal.target = target
+      changed++
+    }
+    a.goal.syncedAt = new Date().toISOString()
+  }
+  save(KEYS.balances, accounts)
+  return changed
+}
+
+// --- Payday plan -----------------------------------------------------
+// The figures the payday planner starts from, for one period:
+//  - income: wages already in this period, else the last period's wages
+//    (the salary often lands after payday morning);
+//  - setAside: savings and transfer bills (Credit Union, a trip pot, a card
+//    payment), each with its goal's needs where it has one;
+//  - bills: every other bill;
+//  - limits: spending categories that have no bill.
+// Display units in and out, like the summary.
+const SET_ASIDE_CATEGORY = /saving|invest/i
+
+export function isSetAsideBill(bill, categories) {
+  const cat = (categories || []).find((c) => c.id === bill.categoryId)
+  return Boolean(cat?.transfer) || SET_ASIDE_CATEGORY.test(cat?.name || '') || SET_ASIDE_CATEGORY.test(bill.categoryId || '')
+}
+
+export function planOverview({ periodKey, payDay, bills, categories, balances, transactions }) {
+  const wagesIn = (key) =>
+    (transactions || [])
+      .filter((t) => t.type === 'income' && !isTransfer(t) && t.categoryId === 'wages' && inPeriod(t.date, key, payDay))
+      .reduce((sum, t) => sum + toCents(t.amount), 0)
+  const thisWages = wagesIn(periodKey)
+  const lastWages = wagesIn(shiftMonthPrefix(periodKey, -1))
+  const applying = (bills || []).filter((b) => billAppliesTo(b, periodKey))
+  const goalFor = (b) => {
+    const acct = (balances || []).find((a) => a.id === b.balanceAccountId)
+    return acct?.goal ? { account: acct, progress: goalProgress(acct, bills, payDay) } : null
+  }
+  const setAside = applying
+    .filter((b) => isSetAsideBill(b, categories))
+    .sort((a, b) => b.amount - a.amount)
+    .map((b) => ({ bill: b, goal: goalFor(b) }))
+  const fixed = applying.filter((b) => !isSetAsideBill(b, categories)).sort((a, b) => b.amount - a.amount)
+  const billCats = new Set(applying.map((b) => b.categoryId))
+  const limits = (categories || []).filter(
+    (c) => c.kind !== 'income' && !c.archived && !isExcludedFromTotals(c) && !billCats.has(c.id)
+  )
+  return {
+    income: fromCents(thisWages || lastWages),
+    incomeIsEstimate: !thisWages,
+    bills: fixed,
+    billsTotal: fromCents(fixed.reduce((sum, b) => sum + toCents(b.amount), 0)),
+    setAside,
+    limits
+  }
+}
+
+// Whether a period's plan has been made or put off, so the payday card
+// shows until one of those happens and then leaves it alone.
+export async function getPlanState(periodKey) {
+  return load(KEYS.plans, {})[periodKey] || null
+}
+
+export async function setPlanState(periodKey, status) {
+  const all = load(KEYS.plans, {})
+  all[periodKey] = { status, at: new Date().toISOString() }
+  save(KEYS.plans, all)
+  return all[periodKey]
+}
+
+// --- Limit warnings --------------------------------------------------
+// Compares a period's summary before and after a change, and reports the
+// category the change pushed past 80% of its limit, or past the limit
+// itself. Only an upward crossing counts, so the same warning doesn't
+// repeat on every later coffee.
+export const LIMIT_NEAR = 0.8
+
+export function budgetCrossing(before, after, categoryId) {
+  const b = before?.byCategory?.find((c) => c.id === categoryId)
+  const a = after?.byCategory?.find((c) => c.id === categoryId)
+  const budget = a?.effectiveBudget
+  if (!a || !(budget > 0)) return null
+  const was = (b?.spent || 0) / budget
+  const now = a.spent / budget
+  let level = null
+  if (now > 1 && was <= 1) level = 'over'
+  else if (now >= LIMIT_NEAR && was < LIMIT_NEAR) level = 'near'
+  if (!level) return null
+  return { categoryId, name: a.name, spent: a.spent, budget, fraction: now, level }
+}
+
+// --- Reminders --------------------------------------------------------
+// Settings for the phone reminders and the in-app limit warnings. All on
+// by default except hiding amounts on the lock screen.
+const REMINDER_DEFAULTS = {
+  payday: true,
+  bills: true,
+  nothingLogged: true,
+  goals: true,
+  limits: true,
+  hideAmounts: false,
+  time: '09:00'
+}
+
+export async function getReminderSettings() {
+  return { ...REMINDER_DEFAULTS, ...load(KEYS.reminders, {}) }
+}
+
+export async function setReminderSettings(updates) {
+  const next = { ...REMINDER_DEFAULTS, ...load(KEYS.reminders, {}), ...updates }
+  if (!/^\d{2}:\d{2}$/.test(next.time)) next.time = REMINDER_DEFAULTS.time
+  save(KEYS.reminders, next)
+  return next
+}
+
+// A stable positive 31-bit id per reminder, so rescheduling replaces rather
+// than duplicates.
+function reminderId(str) {
+  let h = 2166136261
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return (h >>> 1) || 1
+}
+
+const isoAddDays = (iso, n) => new Date(Date.parse(iso + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10)
+const utcIso = (d) => d.toISOString().slice(0, 10)
+
+// Works out every reminder for the next couple of months from what's on the
+// device. Pure: takes plain data (display units) and returns
+// [{ id, at: Date, title, body }]; the native layer does the scheduling.
+// Texts come from `text(key, vars)` so this stays language-free, and
+// `money(v)` formats amounts. With hideAmounts, no name or figure is used.
+export function planReminders({ bills, categories, balances, transactions, payDay, settings, now = new Date(), text, money, weekday }) {
+  const s = { ...REMINDER_DEFAULTS, ...(settings || {}) }
+  const [hh, mm] = s.time.split(':').map(Number)
+  const at = (iso) => {
+    const [y, m, d] = iso.split('-').map(Number)
+    return new Date(y, m - 1, d, hh, mm, 0, 0)
+  }
+  const horizon = new Date(now.getTime() + 62 * 86400000)
+  const inWindow = (d) => d > now && d <= horizon
+  const transferCat = new Set((categories || []).filter((c) => c.transfer).map((c) => c.id))
+  const out = []
+  const push = (key, when, title, body) => out.push({ id: reminderId(key), at: when, title, body })
+
+  const firstKey = currentPeriodKey(payDay)
+  const keys = [0, 1, 2, 3].map((i) => shiftMonthPrefix(firstKey, i))
+
+  if (s.payday) {
+    for (const key of keys) {
+      const start = utcIso(periodBounds(key, payDay).start)
+      const when = at(start)
+      if (!inWindow(when)) continue
+      const moves = (bills || []).filter((b) => transferCat.has(b.categoryId) && billAppliesTo(b, key) && !b.payments?.[key])
+      let body
+      if (!moves.length) body = text('remPaydayBody')
+      else if (s.hideAmounts) body = text('remPaydayBodyHidden')
+      else {
+        const total = moves.reduce((sum, b) => sum + toCents(b.amount), 0)
+        body = text('remPaydayBodyMove', { amount: money(fromCents(total)), name: moves.length === 1 ? moves[0].name : text('remYourSavings') })
+      }
+      push(`payday|${key}`, when, text('remPaydayTitle'), body)
+    }
+  }
+
+  if (s.bills) {
+    const byDay = new Map()
+    for (const key of keys) {
+      for (const b of bills || []) {
+        if (transferCat.has(b.categoryId) || !billAppliesTo(b, key) || b.payments?.[key]) continue
+        const due = billDateWithinPeriod(key, payDay, b.dueDay)
+        const day = isoAddDays(due, -1)
+        if (!inWindow(at(day))) continue
+        if (!byDay.has(day)) byDay.set(day, [])
+        byDay.get(day).push(b)
+      }
+    }
+    for (const [day, list] of byDay) {
+      list.sort((a, b) => b.amount - a.amount)
+      if (s.hideAmounts) {
+        push(`bills|${day}`, at(day), list.length === 1 ? text('remBillTitleHidden') : text('remBillsTitleHidden', { n: list.length }), text('remBillBodyHidden'))
+      } else {
+        const first = `${list[0].name}, ${money(list[0].amount)}`
+        const body = list.length === 1 ? first : list.length === 2 ? text('remTwoBills', { a: first, b: `${list[1].name}, ${money(list[1].amount)}` }) : text('remMoreBills', { a: first, n: list.length - 1 })
+        push(`bills|${day}`, at(day), text('remBillTitle'), body)
+      }
+    }
+  }
+
+  if (s.nothingLogged && transactions?.length) {
+    const last = transactions.reduce((m, t) => (t.date > m ? t.date : m), '')
+    const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const remindDay = [isoAddDays(last, 3), isoAddDays(todayIso, 1)].sort().pop()
+    const when = at(remindDay)
+    if (inWindow(when)) push(`log|${last}`, when, text('remLogTitle', { day: weekday(last) }), text('remLogBody'))
+  }
+
+  if (s.goals) {
+    const nextStart = utcIso(periodBounds(keys[1], payDay).start)
+    const when = at(isoAddDays(nextStart, 1))
+    for (const a of balances || []) {
+      if ((a.type !== 'savings' && a.type !== 'debt') || !a.goal) continue
+      const p = goalProgress(a, bills, payDay)
+      if (!p || p.reached || p.onTrack || !inWindow(when)) continue
+      const body = s.hideAmounts
+        ? text('remGoalBodyHidden')
+        : text('remGoalBody', { left: money(p.remaining), per: money(p.neededPerPayday), n: p.paydaysLeft })
+      push(`goal|${a.id}|${nextStart}`, when, s.hideAmounts ? text('remGoalTitleHidden') : text('remGoalTitle', { name: a.name }), body)
+    }
+  }
+
+  // iOS keeps at most 64 pending; the soonest matter most.
+  return out.sort((a, b) => a.at - b.at).slice(0, 60)
+}
+
+// --- Repeat charges (subscriptions) ----------------------------------
+// Finds charges that come back at a steady rhythm for about the same amount:
+// subscriptions, plans, memberships. Works on what's already been logged or
+// imported, nothing else. Same shop, same-ish amount (within 12% or 50c, so a
+// price rise stays one subscription while a €0.99 and a €9.99 from the same
+// shop stay two), at least three times, mostly monthly or weekly apart.
+// "Stopped" means the next charge is more than 10 days late.
+const SUB_GENERIC = new Set(['card', 'purchase', 'payment', 'fee', 'transfer', 'to', 'from', 'the', 'pos', 'dd', 'so'])
+
+function subscriptionKey(note) {
+  const words = merchantKey(note).split(' ').filter(Boolean)
+  const first = words.findIndex((w) => !SUB_GENERIC.has(w) && w.length >= 3 && !/^\d+$/.test(w))
+  if (first < 0) return null
+  // A fee or plan line keeps its next word, so "Metal plan fee" and
+  // "Fee: maintaining account" don't merge with unrelated rows.
+  return words[first] === 'plan' || first > 0 ? words.slice(first, first + 2).join(' ') : words[first]
+}
+
+const daysBetween = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000)
+const addDays = (iso, n) => new Date(Date.parse(iso + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10)
+
+// Categories whose repeats are habits or commitments, not subscriptions:
+// takeaway every few weeks, fuel, travel, rent, savings, card repayments.
+const SUB_SKIP_CATEGORY = /food|grocer|restaurant|takeaway|holiday|travel|transport|fuel|rent|saving|invest|credit card|loan/i
+
+export function findSubscriptions(transactions, bills = [], today = todayLocal(), categories = []) {
+  const skipCats = new Set((categories || []).filter((c) => SUB_SKIP_CATEGORY.test(c.name || '') || SUB_SKIP_CATEGORY.test(c.id || '')).map((c) => c.id))
+  const groups = new Map()
+  for (const t of transactions || []) {
+    if (t.type !== 'expense' || isTransfer(t) || !t.note || skipCats.has(t.categoryId)) continue
+    // Money sent to a person is a person, not a subscription.
+    if (/^\s*(transfer|payment) (to|from)\b/i.test(t.note)) continue
+    const key = subscriptionKey(t.note)
+    if (!key) continue
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push({ date: t.date, cents: toCents(t.amount), note: t.note, id: t.id, categoryId: t.categoryId })
+  }
+
+  const found = []
+  for (const [key, rows] of groups) {
+    rows.sort((a, b) => a.date.localeCompare(b.date))
+    // Cluster by amount, comparing against the cluster's latest charge so a
+    // gradual price rise stays one subscription.
+    const clusters = []
+    for (const r of rows) {
+      const c = clusters.find((cl) => {
+        const ref = cl[cl.length - 1].cents
+        return Math.abs(r.cents - ref) <= Math.max(Math.round(ref * 0.12), 50)
+      })
+      if (c) c.push(r)
+      else clusters.push([r])
+    }
+    for (const cl of clusters) {
+      // One charge per day: a same-day pair is a split payment, not a cadence.
+      const charges = cl.filter((r, i) => i === 0 || r.date !== cl[i - 1].date)
+      if (charges.length < 3) continue
+      const gaps = charges.slice(1).map((r, i) => daysBetween(charges[i].date, r.date))
+      const sorted = [...gaps].sort((a, b) => a - b)
+      const median = sorted[Math.floor((sorted.length - 1) / 2)]
+      let cadence = null
+      if (median >= 26 && median <= 38) cadence = 'monthly'
+      else if (median >= 6 && median <= 8) cadence = 'weekly'
+      if (!cadence) continue
+      const [lo, hi] = cadence === 'monthly' ? [20, 45] : [5, 10]
+      // Mostly regular: gaps a month or two long (a skipped month) still count.
+      const regular = gaps.filter((g) => (g >= lo && g <= hi) || (cadence === 'monthly' && g >= 50 && g <= 70)).length
+      if (regular / gaps.length < 0.6) continue
+      const last = charges[charges.length - 1]
+      const step = cadence === 'monthly' ? Math.min(median, 31) : 7
+      const nextExpected = addDays(last.date, step)
+      const lateBy = daysBetween(nextExpected, today)
+      const stopped = lateBy > 10
+      // A stopped one is only worth showing while it's news: the last
+      // charge within about three months (did that cancellation work?).
+      if (stopped && daysBetween(last.date, today) > 100) continue
+      const ids = new Set(cl.map((r) => r.id))
+      const bill =
+        (bills || []).find((b) => Object.values(b.payments || {}).some((p) => p?.transactionId && ids.has(p.transactionId))) ||
+        (bills || []).find((b) => {
+          const bk = merchantKey(b.name)
+          return bk && (bk.split(' ').some((w) => w.length >= 4 && key.includes(w)) || key.split(' ').some((w) => w.length >= 4 && bk.includes(w)))
+        })
+      found.push({
+        key: `${key}|${cl[0].cents}`,
+        name: last.note,
+        amount: fromCents(last.cents),
+        cadence,
+        monthly: fromCents(cadence === 'monthly' ? last.cents : Math.round((last.cents * 52) / 12)),
+        count: charges.length,
+        firstDate: charges[0].date,
+        lastDate: last.date,
+        nextExpected,
+        // late: the next charge is a few days overdue, often the first sign
+        // a cancellation worked
+        status: stopped ? 'stopped' : lateBy > 2 ? 'late' : 'active',
+        billId: bill?.id || null,
+        categoryId: cl[cl.length - 1].categoryId || null,
+        transactionIds: cl.map((r) => r.id)
+      })
+    }
+  }
+  const rank = { active: 0, late: 1, stopped: 2 }
+  return found.sort((a, b) => rank[a.status] - rank[b.status] || b.monthly - a.monthly)
+}
+
+// Repeat charges the person has said aren't subscriptions. Keyed by the
+// detector's key (shop + first amount), kept on the device and in backups.
+export async function getHiddenSubscriptions() {
+  return load(KEYS.hiddenSubscriptions, [])
+}
+
+export async function setSubscriptionHidden(key, hidden) {
+  const list = new Set(load(KEYS.hiddenSubscriptions, []))
+  if (hidden) list.add(key)
+  else list.delete(key)
+  save(KEYS.hiddenSubscriptions, [...list])
+  return [...list]
+}
+
+// --- Savings goals ----------------------------------------------------
+// A savings card can carry a goal: a target and the date it's needed by.
+// Stored as { target: cents, by: 'YYYY-MM-DD' }; null removes it.
+export async function setBalanceGoal(accountId, goal) {
+  const accounts = loadBalancesRaw()
+  const account = accounts.find((a) => a.id === accountId)
+  if (!account) return null
+  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(goal?.by || '')
+  if (goal && validDate && account.type === 'debt') {
+    // A debt's goal is paying it off: target 0 by a date. Remembering where it
+    // started lets the ring show how much of it is gone.
+    const startValue = account.goal?.startValue ?? (latestEntry(account)?.value || 0)
+    account.goal = { target: 0, by: goal.by, startValue }
+  } else if (goal && goal.target > 0 && validDate) {
+    const tripSlug = goal.tripSlug !== undefined ? goal.tripSlug : account.goal?.tripSlug
+    account.goal = { target: toCents(goal.target), by: goal.by, ...(tripSlug ? { tripSlug } : {}) }
+  } else {
+    delete account.goal
+  }
+  save(KEYS.balances, accounts)
+  return toDisplayBalanceAccount(account)
+}
+
+// How a goal is doing. Counts the paydays still to come up to the goal date
+// (the current period counts too while its transfer bill is unpaid), and
+// checks whether the linked transfer bill, paid each of those times, gets
+// there. Without a linked bill it reports what each payday would need.
+export function goalProgress(account, bills, payDay, today = todayLocal()) {
+  if (!account?.goal) return null
+  const current = toCents(latestEntry(account)?.value || 0)
+  const target = toCents(account.goal.target)
+  const bill = (bills || []).find((b) => b.balanceAccountId === account.id)
+  const [ty, tm, td] = today.split('-').map(Number)
+  const todayTs = utcDate(ty, tm, td).getTime()
+  const [by, bm, bd] = account.goal.by.split('-').map(Number)
+  const byTs = utcDate(by, bm, bd).getTime()
+
+  let paydaysLeft = 0
+  let key = currentPeriodKey(payDay)
+  for (let guard = 0; guard < 240; guard++, key = shiftMonthPrefix(key, 1)) {
+    const startTs = periodBounds(key, payDay).start.getTime()
+    if (startTs > byTs) break
+    if (bill && !billAppliesTo(bill, key)) continue
+    const pending = startTs > todayTs || (bill && !bill.payments?.[key])
+    if (pending) paydaysLeft++
+  }
+
+  const isDebt = account.type === 'debt'
+  // Savings count up to the target; a debt counts down to it (zero). Interest
+  // isn't modelled, so a debt's figure is what's owed now, paid down evenly.
+  const remaining = isDebt ? Math.max(0, current - target) : Math.max(0, target - current)
+  const perPayday = bill ? toCents(bill.amount) : 0
+  const neededPerPayday = paydaysLeft > 0 ? Math.ceil(remaining / paydaysLeft) : remaining
+  const reached = isDebt ? current <= target : current >= target
+  const onTrack = reached || (paydaysLeft > 0 && perPayday * paydaysLeft >= remaining)
+  const start = isDebt ? toCents(account.goal.startValue ?? 0) : 0
+  const fraction = isDebt
+    ? start > 0
+      ? Math.min(1, Math.max(0, (start - current) / start))
+      : reached
+        ? 1
+        : 0
+    : target > 0
+      ? Math.min(1, current / target)
+      : 0
+  return {
+    kind: isDebt ? 'debt' : 'savings',
+    remaining: fromCents(remaining),
+    current: fromCents(current),
+    target: fromCents(target),
+    by: account.goal.by,
+    fraction,
+    paydaysLeft,
+    perPayday: fromCents(perPayday),
+    neededPerPayday: fromCents(neededPerPayday),
+    hasBill: Boolean(bill),
+    reached,
+    onTrack
+  }
 }
 
 // --- Summaries -------------------------------------------------------
@@ -1228,7 +1871,19 @@ function loadBalancesRaw() {
 }
 
 function toDisplayBalanceAccount(a) {
-  return { ...a, entries: a.entries.map((e) => ({ ...e, value: fromCents(e.value) })) }
+  return {
+    ...a,
+    entries: a.entries.map((e) => ({ ...e, value: fromCents(e.value) })),
+    ...(a.goal
+      ? {
+          goal: {
+            ...a.goal,
+            target: fromCents(a.goal.target),
+            ...(a.goal.startValue != null ? { startValue: fromCents(a.goal.startValue) } : {})
+          }
+        }
+      : {})
+  }
 }
 
 export async function getBalances() {

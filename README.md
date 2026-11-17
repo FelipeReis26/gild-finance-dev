@@ -13,11 +13,12 @@ so it runs as a real iOS or Android app.
 
 ## Data
 
-All data lives in `src/db.js`. It currently uses the browser's
-localStorage so you can run and test the app instantly with no setup.
-Every function in that file is async and returns plain objects, so
-swapping the storage for `@capacitor-community/sqlite` later means
-rewriting the inside of that one file only, no screen changes needed.
+All data lives in `src/db.js`, which reads and writes the browser's
+localStorage. In the iPhone app, `src/deviceStore.js` also keeps a copy
+in a file in the app's own storage (Library/gild-data.json), because iOS
+can clear a web view's storage on its own. That file is loaded back into
+localStorage before the app starts, and rewritten after every change. In
+a browser it does nothing.
 
 ## Run in the browser
 
@@ -31,37 +32,32 @@ open dev tools device mode, to see it as intended.
 
 ## Package as an iOS app
 
-The `ios/` folder is already generated and included in this project,
-so no local Xcode step is needed before uploading to a build service
-like Codemagic. A ready-made `codemagic.yaml` is also included at the
-project root, so Codemagic picks up the whole build automatically
-once you connect your Apple ID.
+The iPhone app is the web app built into a Capacitor shell, so it runs
+offline and a Vercel deploy doesn't change it. It's signed with a free
+Apple ID (personal team), which means:
 
-In Codemagic:
+- it installs from Xcode only, onto your own devices;
+- an install lasts 7 days, then press Run in Xcode again (your data
+  stays on the phone through reinstalls);
+- one free Apple ID can have 3 of its apps on a phone at once.
 
-1. Add the app, pick "iOS app with Capacitor" or just let it detect
-   `codemagic.yaml`
-2. Under code signing, connect your Apple Developer account (uses
-   Codemagic's App Store Connect integration, follow their one-time
-   setup link, it walks you through generating an API key on
-   developer.apple.com)
-3. Start the build, it installs dependencies, builds the web app,
-   syncs Capacitor, then builds and signs the iOS app
-4. On success, it publishes to TestFlight automatically. Install the
-   TestFlight app on your iPhone, accept the invite, and install
-   from there
-
-If you ever build locally on a Mac instead, from this folder run:
+To build and install:
 
 ```
 npm install
-npm run build
-npx cap sync ios
-npx cap open ios
+npm run ios
 ```
 
-That opens the project in Xcode, where you can run it on a
-connected iPhone or simulator like any native project.
+That builds the web app, syncs it into `ios/` and opens Xcode. Pick your
+iPhone as the run destination and press Run.
+
+On the phone, backups go to Files → On My iPhone → GILD. Export backup
+saves there and opens the share sheet. Restore backup picks a file from
+there (or anywhere in Files). Restoring first saves a safety copy of the
+current data in the same folder, and doesn't restore if it can't.
+
+`codemagic.yaml` is from an earlier plan to build in the cloud for
+TestFlight, which needs the paid developer account.
 
 ## Wiring up real screenshot scanning
 
@@ -75,8 +71,6 @@ same shape.
 
 ## Next steps worth considering
 
-- Swap localStorage for `@capacitor-community/sqlite` for reliable
-  on-device storage
 - Add recurring bill auto-generation (next month's bill appears
   automatically after the current one is paid)
 - Push notifications for bills due soon

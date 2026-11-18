@@ -114,6 +114,12 @@ struct LogApplePayIntent: AppIntent {
     @Parameter(title: "Merchant") var merchant: String
     @Parameter(title: "Card", default: "") var card: String
 
+    // Shows the three fields in the action itself, so each can be set to the
+    // Wallet trigger's Shortcut Input (Amount, Merchant, Card or Pass).
+    static var parameterSummary: some ParameterSummary {
+        Summary("Log \(\.$amount) at \(\.$merchant) on \(\.$card)")
+    }
+
     func perform() async throws -> some IntentResult {
         try ApplePayInbox.append(amount: amount, merchant: merchant, card: card)
         return .result()

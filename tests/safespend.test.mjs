@@ -37,6 +37,32 @@ s = db.safeToSpend({ income: 3200, spent: 4100 }, bills, cats, '2026-10')
 ok(s.setAside === 0, 'a bill before its startPeriod is ignored')
 ok(s.safe < 0, 'overspent periods go negative')
 
+// --- a card paid off by a transfer bill: card spending counts once ---------
+// 300 a payday to the card from 2026-11. A purchase on the card counts as
+// spending in its own period; the next repayment pays for it, so that much
+// of the repayment isn't set aside a second time.
+const cardBill = { id: 'c', amount: 300, categoryId: 'transfers', dueDay: 19, payments: {}, accountId: 'main', counterAccountId: 'card', balanceAccountId: 'debt', startPeriod: '2026-11' }
+const debtAccounts = [{ id: 'debt', type: 'debt', entries: [] }]
+const cardTx = [
+  { date: '2026-11-10', type: 'expense', amount: 200, categoryId: 'rent', accountId: 'card' }, // before the plan
+  { date: '2026-11-25', type: 'expense', amount: 80, categoryId: 'rent', accountId: 'card' }, // period 2026-11
+  { date: '2026-11-26', type: 'income', amount: 30, categoryId: 'rent', accountId: 'card' }, // a refund
+  { date: '2026-11-27', type: 'expense', amount: 40, categoryId: 'rent', accountId: 'main' }, // not the card
+  { date: '2026-11-28', type: 'expense', amount: 300, categoryId: 'transfers', accountId: 'card', transfer: true } // not spending
+]
+const withCard = (key, tx = cardTx, accounts = debtAccounts) =>
+  db.safeToSpend({ income: 3000, spent: 0 }, [cardBill], cats, key, { transactions: tx, balances: accounts, payDay: 19 })
+s = withCard('2026-11')
+ok(s.cardCovered === 0 && s.setAside === 300, `first period of the plan: the whole repayment is set aside (${s.setAside})`)
+s = withCard('2026-12')
+ok(s.cardCovered === 50 && s.setAside === 250 && s.safe === 2750, `next period: the 50 net card spend already counted comes off (${s.cardCovered}, ${s.safe})`)
+s = withCard('2027-01')
+ok(s.cardCovered === 0 && s.setAside === 300, `only once: the period after is back to the full repayment (${s.cardCovered})`)
+const bigSpend = [{ date: '2026-11-25', type: 'expense', amount: 450, categoryId: 'rent', accountId: 'card' }]
+ok(withCard('2026-12', bigSpend).cardCovered === 300 && withCard('2027-01', bigSpend).cardCovered === 150, 'spending above one repayment carries into the next')
+ok(withCard('2026-12', cardTx, [{ id: 'debt', type: 'savings', entries: [] }]).cardCovered === 0, 'only a debt account, not a savings pot')
+ok(db.safeToSpend({ income: 3000, spent: 0 }, [cardBill], cats, '2026-12').setAside === 300, 'without transactions it works as before')
+
 ok(db.billAppliesTo({ startPeriod: '2026-11' }, '2026-12') && !db.billAppliesTo({ startPeriod: '2026-11' }, '2026-10') && db.billAppliesTo({}, '2000-01'), 'billAppliesTo')
 
 // --- goals ----------------------------------------------------------------

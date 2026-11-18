@@ -1268,20 +1268,32 @@ export function billAppliesTo(bill, periodKey) {
 // is already inside `spent`; a transfer bill never is, paid or not, because
 // transfers stay out of spending, so it is taken off separately.
 // Takes and returns display units (decimal money), like the summary.
-export function safeToSpend({ income, spent }, bills, categories, periodKey) {
+//
+// A credit card paid off by a transfer bill: a purchase on the card counts as
+// spending in the period it's made, and the repayment pays it off in a later
+// period. Counting the whole repayment as set aside would count that purchase
+// a second time, so the part of the repayment that pays for card spending
+// already counted (in an earlier period of the plan) comes off what's set
+// aside. Card spending from before the plan started stays in the repayment:
+// it is part of the old debt, and its periods have ended.
+export function safeToSpend({ income, spent }, bills, categories, periodKey, { transactions, balances, payDay } = {}) {
   const transferCat = new Set((categories || []).filter((c) => c.transfer).map((c) => c.id))
   let billsDueCents = 0
   let billsDueCount = 0
   let setAsideCents = 0
+  let cardCoveredCents = 0
   for (const b of bills || []) {
     if (!billAppliesTo(b, periodKey)) continue
     const amount = toCents(b.amount)
-    if (transferCat.has(b.categoryId)) setAsideCents += amount
-    else if (!b.payments?.[periodKey]) {
+    if (transferCat.has(b.categoryId)) {
+      setAsideCents += amount
+      cardCoveredCents += cardSpendCovered(b, periodKey, { transactions, balances, categories, payDay })
+    } else if (!b.payments?.[periodKey]) {
       billsDueCents += amount
       billsDueCount++
     }
   }
+  setAsideCents -= cardCoveredCents
   const safeCents = toCents(income) - toCents(spent) - billsDueCents - setAsideCents
   return {
     income,
@@ -1289,8 +1301,35 @@ export function safeToSpend({ income, spent }, bills, categories, periodKey) {
     billsDue: fromCents(billsDueCents),
     billsDueCount,
     setAside: fromCents(setAsideCents),
+    cardCovered: fromCents(cardCoveredCents),
     safe: fromCents(safeCents)
   }
+}
+
+// How much of a card repayment bill, this period, pays for card spending
+// already counted in an earlier period of its plan (cents). Walks the periods
+// from the bill's start: each period's net card spending joins a pool, and
+// each later repayment takes from the pool up to its own amount.
+function cardSpendCovered(bill, periodKey, { transactions, balances, categories, payDay }) {
+  if (!transactions || payDay == null || !bill.counterAccountId || !bill.startPeriod) return 0
+  const debt = (balances || []).find((a) => a.id === bill.balanceAccountId)
+  if (debt?.type !== 'debt') return 0
+  const excluded = excludedCategoryIds(categories || [])
+  const onCard = transactions.filter(
+    (t) => t.accountId === bill.counterAccountId && !isTransfer(t) && !excluded.has(t.categoryId)
+  )
+  const netSpend = (key) =>
+    onCard
+      .filter((t) => inPeriod(t.date, key, payDay))
+      .reduce((sum, t) => sum + (t.type === 'expense' ? toCents(t.amount) : -toCents(t.amount)), 0)
+  const amount = toCents(bill.amount)
+  let pool = 0
+  let key = bill.startPeriod
+  for (let guard = 0; guard < 240 && key < periodKey; guard++, key = shiftMonthPrefix(key, 1)) {
+    pool = Math.max(0, pool - amount) // that period's repayment took its share
+    pool = Math.max(0, pool + netSpend(key)) // its card spending waits for the next repayment
+  }
+  return key === periodKey ? Math.min(amount, pool) : 0
 }
 
 // --- Tripsy -------------------------------------------------------------

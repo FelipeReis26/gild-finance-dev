@@ -52,7 +52,7 @@ export default function Dashboard({ onAddTransaction, onSelectCategory, onPlan, 
   // money set aside for savings, so the dial answers "what can I still spend"
   // rather than "income minus spending". Other periods keep the plain figure:
   // an ended period's bills are history, and a coming one has no pay in yet.
-  const safe = isCurrent ? safeToSpend(summary, bills, categories, selectedMonth) : null
+  const safe = isCurrent ? safeToSpend(summary, bills, categories, selectedMonth, { transactions, balances, payDay }) : null
   const left = safe ? safe.safe : summary.left
   const over = left < 0
   const perDay = isCurrent && daysRemaining > 0 ? left / daysRemaining : null

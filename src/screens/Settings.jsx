@@ -7,6 +7,8 @@ import { changelog } from '../changelog.js'
 import { reminderPermission, askReminderPermission } from '../reminders.js'
 import { getReminderSettings, setReminderSettings } from '../db.js'
 import { tripShare } from '../tripsy.js'
+import { getApplePaySettings, setApplePayCard } from '../db.js'
+import { accountForCard } from '../applePay.js'
 
 function BackButton({ onBack, label }) {
   return (
@@ -29,6 +31,7 @@ function MenuScreen({ onOpen, t }) {
     { key: 'language', label: t('language'), icon: 'ti-language' },
     { key: 'categories', label: t('categoriesSettings'), icon: 'ti-tag' },
     { key: 'reminders', label: t('reminders'), icon: 'ti-bell' },
+    { key: 'applepay', label: 'Apple Pay', icon: 'ti-brand-apple' },
     { key: 'tripsy', label: 'Tripsy', icon: 'ti-plane' },
     { key: 'security', label: t('security'), icon: 'ti-lock' },
     { key: 'data', label: t('dataAndBackup'), icon: 'ti-database' },
@@ -521,6 +524,79 @@ function CategoriesScreen({ onBack, t }) {
           <i className="ti ti-plus" aria-hidden="true"></i> {t('addCategory')}
         </button>
       </div>
+    </div>
+  )
+}
+
+// Apple Pay: the one-off Shortcuts setup, and which Wallet card is which
+// account. Cards appear here once a payment from them has arrived.
+function ApplePayScreen({ onBack, t }) {
+  const { accounts, applePay, transactions, currency, language } = useApp()
+  const [settings, setSettings] = useState(null)
+  useEffect(() => {
+    getApplePaySettings().then(setSettings)
+  }, [])
+  if (!settings) return null
+  const money = (v) => formatMoney(language, currency, v, { decimals: 2 })
+  const seen = [
+    ...new Set([
+      ...Object.keys(settings.cards || {}),
+      ...applePay.map((p) => p.card),
+      ...transactions.filter((x) => x.source === 'applepay' && x.cardName).map((x) => x.cardName)
+    ])
+  ].filter(Boolean)
+  const steps = ['applePayStep1', 'applePayStep2', 'applePayStep3', 'applePayStep4']
+  return (
+    <div className="screen">
+      <BackButton onBack={onBack} label={t('back')} />
+      <p className="section-title" style={{ marginTop: 4 }}>
+        Apple Pay
+      </p>
+      <div className="card plan-card">
+        {steps.map((k, i) => (
+          <div className="setup-step" key={k}>
+            <span className="setup-num">{i + 1}</span>
+            <p dangerouslySetInnerHTML={{ __html: t(k) }} />
+          </div>
+        ))}
+      </div>
+      <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+        {t('applePayOnlyApplePay')}
+      </p>
+      {seen.length > 0 && (
+        <>
+          <p className="section-title" style={{ marginBottom: -4 }}>
+            {t('applePayCards')}
+          </p>
+          <div className="card plan-card">
+            {seen.map((card) => (
+              <label className="plan-row" key={card}>
+                <span className="plan-label">{card}</span>
+                <select
+                  value={accountForCard(card, accounts, settings.cards)}
+                  onChange={async (e) => setSettings(await setApplePayCard(card, e.target.value))}
+                  style={{ width: 'auto', margin: 0 }}
+                >
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+      <p className="row-sub" style={{ margin: 0 }}>
+        {settings.last
+          ? tf(language, 'applePayLast', {
+              when: new Date(settings.last.at).toLocaleString(localeFor(language), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
+              merchant: settings.last.merchant,
+              amount: money(settings.last.amount)
+            })
+          : t('applePayNoneYet')}
+      </p>
     </div>
   )
 }
@@ -1176,6 +1252,12 @@ export default function Settings({ initialView }) {
     return (
       <SubScreenSwipeWrapper onBack={back}>
         <CategoriesScreen onBack={back} t={t} />
+      </SubScreenSwipeWrapper>
+    )
+  if (view === 'applepay')
+    return (
+      <SubScreenSwipeWrapper onBack={back}>
+        <ApplePayScreen onBack={back} t={t} />
       </SubScreenSwipeWrapper>
     )
   if (view === 'tripsy')

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '../context/AppContext.jsx'
 import BreakdownRing from '../components/BreakdownRing.jsx'
+import ApplePayCard from '../components/ApplePayCard.jsx'
 import { useSwipe } from '../useSwipe.js'
 import { formatMoney, formatMonthShort, localeFor, tf } from '../i18n.js'
 import { periodBounds, currentPeriodKey, todayLocalDate, accountBalance, safeToSpend, goalProgress, getPlanState, setPlanState } from '../db.js'
@@ -98,6 +99,8 @@ export default function Dashboard({ onAddTransaction, onSelectCategory, onPlan, 
           </button>
         </div>
       </div>
+
+      <ApplePayCard />
 
       {isCurrent && dayIndex <= 3 && planState === null && onPlan && (
         <div className="card plan-prompt">

@@ -30,6 +30,9 @@ const KEYS = {
   reminders: 'ft_reminders',
   plans: 'ft_plans',
   tripsy: 'ft_tripsy',
+  periodLimits: 'ft_period_limits',
+  applePay: 'ft_applepay',
+  applePaySettings: 'ft_applepay_settings',
   schemaVersion: 'ft_schema_version'
 }
 
@@ -1386,6 +1389,63 @@ export function planOverview({ periodKey, payDay, bills, categories, balances, t
   }
 }
 
+// Limits for one pay period only, set in the payday plan ("just this
+// period"): Qatar money in one month, gifts in December. Stored per period
+// as cents; null removes it so the usual limit applies again.
+export async function getPeriodLimits(periodKey) {
+  const all = load(KEYS.periodLimits, {})
+  return Object.fromEntries(Object.entries(all[periodKey] || {}).map(([k, v]) => [k, fromCents(v)]))
+}
+
+export async function setPeriodLimit(periodKey, categoryId, value) {
+  const all = load(KEYS.periodLimits, {})
+  const forPeriod = { ...(all[periodKey] || {}) }
+  if (value == null) delete forPeriod[categoryId]
+  else forPeriod[categoryId] = toCents(value)
+  if (Object.keys(forPeriod).length) all[periodKey] = forPeriod
+  else delete all[periodKey]
+  save(KEYS.periodLimits, all)
+}
+
+// --- Apple Pay payments to check ---------------------------------------
+// Payments from the Shortcuts automation (applePay.js) wait here, in display
+// units, until confirmed or dismissed. Settings: which Wallet card is which
+// account, and when the last one arrived.
+export async function getApplePayPending() {
+  return load(KEYS.applePay, [])
+}
+
+export async function addApplePayPending(items) {
+  const list = load(KEYS.applePay, [])
+  const seen = new Set(list.map((p) => p.id))
+  const added = (items || []).filter((p) => !seen.has(p.id))
+  if (!added.length) return list
+  const next = [...list, ...added].sort((a, b) => String(b.at).localeCompare(String(a.at)))
+  save(KEYS.applePay, next)
+  const settings = load(KEYS.applePaySettings, {})
+  const newest = added.reduce((m, p) => (String(p.at) > String(m.at) ? p : m), added[0])
+  save(KEYS.applePaySettings, { ...settings, last: { at: newest.at, merchant: newest.merchant, amount: newest.amount } })
+  return next
+}
+
+export async function removeApplePayPending(ids) {
+  const drop = new Set(ids || [])
+  const next = load(KEYS.applePay, []).filter((p) => !drop.has(p.id))
+  save(KEYS.applePay, next)
+  return next
+}
+
+export async function getApplePaySettings() {
+  return { cards: {}, ...load(KEYS.applePaySettings, {}) }
+}
+
+export async function setApplePayCard(card, accountId) {
+  const settings = { cards: {}, ...load(KEYS.applePaySettings, {}) }
+  settings.cards = { ...settings.cards, [card]: accountId }
+  save(KEYS.applePaySettings, settings)
+  return settings
+}
+
 // Whether a period's plan has been made or put off, so the payday card
 // shows until one of those happens and then leaves it alone.
 export async function getPlanState(periodKey) {
@@ -1779,6 +1839,9 @@ export async function getMonthSummary(monthPrefix, payDayOverride) {
 
   const excluded = excludedCategoryIds(categories)
   const counted = (t) => !excluded.has(t.categoryId)
+  // a limit set for this period only (payday plan) replaces the usual one
+  const overrides = load(KEYS.periodLimits, {})[periodKey] || {}
+  const baseBudget = (c) => (c.id in overrides ? overrides[c.id] : c.monthlyBudget)
 
   const spentCents = inMonth.filter((t) => counted(t) && t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
   const incomeCents = inMonth.filter((t) => counted(t) && t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
@@ -1792,8 +1855,9 @@ export async function getMonthSummary(monthPrefix, payDayOverride) {
   // Rollover: a category can carry an underspent amount from last month
   // into this month's effective budget, one month back only.
   const effectiveBudgetCents = (c) => {
-    if (c.monthlyBudget == null) return null
-    if (!c.rollover) return c.monthlyBudget
+    const base = baseBudget(c)
+    if (base == null) return null
+    if (!c.rollover || c.id in overrides) return base
     const prevSpentCents = catSpentInCents(inPrevMonth, c.id)
     const leftover = Math.max(0, c.monthlyBudget - prevSpentCents)
     return c.monthlyBudget + leftover
@@ -1801,7 +1865,7 @@ export async function getMonthSummary(monthPrefix, payDayOverride) {
 
   // An excluded category's budget has nothing to be spent against, so it must
   // not inflate the overall budget figure either.
-  const budgeted = categories.filter((c) => c.kind !== 'income' && c.monthlyBudget != null && !excluded.has(c.id))
+  const budgeted = categories.filter((c) => c.kind !== 'income' && baseBudget(c) != null && !excluded.has(c.id))
   const budgetCents = budgeted.length
     ? budgeted.reduce((sum, c) => sum + effectiveBudgetCents(c), 0)
     : incomeCents
@@ -1816,7 +1880,8 @@ export async function getMonthSummary(monthPrefix, payDayOverride) {
       const effBudgetCents = effectiveBudgetCents(c)
       return {
         ...c,
-        monthlyBudget: c.monthlyBudget == null ? null : fromCents(c.monthlyBudget),
+        monthlyBudget: baseBudget(c) == null ? null : fromCents(baseBudget(c)),
+        ...(c.id in overrides ? { periodOnly: true, usualBudget: c.monthlyBudget == null ? null : fromCents(c.monthlyBudget) } : {}),
         spent: fromCents(catSpentCents),
         prevSpent: fromCents(prevSpentCents),
         effectiveBudget: effBudgetCents == null ? null : fromCents(effBudgetCents),

@@ -3,6 +3,7 @@ import * as db from '../db.js'
 import { formatMoney, localeFor, t as translate, tf } from '../i18n.js'
 import { syncReminders } from '../reminders.js'
 import { fetchTrips, getTripsyToken, setTripsyToken, tripShare, isStale, TripsyError } from '../tripsy.js'
+import { takeInbox, toPending } from '../applePay.js'
 
 const AppContext = createContext(null)
 
@@ -497,6 +498,50 @@ export function AppProvider({ children }) {
     [refresh]
   )
 
+  // Apple Pay payments from the Shortcuts automation: picked up from the inbox
+  // on launch and whenever Gild comes back to the front, then held until
+  // confirmed or dismissed.
+  const [applePay, setApplePay] = useState([])
+  const collectApplePay = useCallback(async () => {
+    const fresh = toPending(await takeInbox())
+    setApplePay(fresh.length ? await db.addApplePayPending(fresh) : await db.getApplePayPending())
+  }, [])
+  useEffect(() => {
+    if (!ready) return
+    collectApplePay()
+    const onShow = () => document.visibilityState === 'visible' && collectApplePay()
+    document.addEventListener('visibilitychange', onShow)
+    return () => document.removeEventListener('visibilitychange', onShow)
+  }, [ready, collectApplePay])
+
+  // rows: [{ pending, categoryId, note, accountId }]
+  const confirmApplePay = useCallback(
+    async (rows) => {
+      if (!rows.length) return 0
+      await db.importTransactions(
+        rows.map(({ pending: p, categoryId, note, accountId }) => ({
+          type: p.refund ? 'income' : 'expense',
+          amount: p.amount,
+          categoryId,
+          date: p.date,
+          note: note || p.merchant,
+          bankNote: p.merchant,
+          cardName: p.card || undefined,
+          accountId,
+          source: 'applepay'
+        }))
+      )
+      setApplePay(await db.removeApplePayPending(rows.map((r) => r.pending.id)))
+      await refreshRef.current()
+      return rows.length
+    },
+    []
+  )
+
+  const dismissApplePay = useCallback(async (ids) => {
+    setApplePay(await db.removeApplePayPending(ids))
+  }, [])
+
   // On launch (and at most hourly), read Tripsy again if it's connected.
   useEffect(() => {
     if (!ready) return
@@ -558,6 +603,9 @@ export function AppProvider({ children }) {
         rescheduleReminders,
         tripsy,
         refreshTripsy,
+        applePay,
+        confirmApplePay,
+        dismissApplePay,
         disconnectTripsy,
         linkGoalToTrip,
         removeBalanceAccount,

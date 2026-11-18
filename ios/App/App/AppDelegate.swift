@@ -94,3 +94,59 @@ class MainViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(PdfTextPlugin())
     }
 }
+
+// MARK: - Apple Pay → GILD (Shortcuts)
+//
+// A Shortcuts action, "Log Apple Pay in GILD", meant for a personal
+// automation on the Wallet "Transaction" trigger. It doesn't log anything by
+// itself: it appends the payment to an inbox file in the app's own Library
+// folder, and GILD shows it as a payment to check next time it opens (see
+// src/applePay.js). Nothing leaves the phone.
+import AppIntents
+
+@available(iOS 16.0, *)
+struct LogApplePayIntent: AppIntent {
+    static var title: LocalizedStringResource = "Log Apple Pay in GILD"
+    static var description = IntentDescription("Adds an Apple Pay payment to GILD for you to check.")
+    static var openAppWhenRun: Bool = false
+
+    @Parameter(title: "Amount") var amount: String
+    @Parameter(title: "Merchant") var merchant: String
+    @Parameter(title: "Card", default: "") var card: String
+
+    func perform() async throws -> some IntentResult {
+        try ApplePayInbox.append(amount: amount, merchant: merchant, card: card)
+        return .result()
+    }
+}
+
+@available(iOS 16.0, *)
+struct GildShortcuts: AppShortcutsProvider {
+    static var appShortcuts: [AppShortcut] {
+        AppShortcut(intent: LogApplePayIntent(), phrases: ["Log Apple Pay in \(.applicationName)"], shortTitle: "Log Apple Pay", systemImageName: "creditcard")
+    }
+}
+
+enum ApplePayInbox {
+    static let fileName = "gild-applepay-inbox.json"
+
+    static func append(amount: String, merchant: String, card: String) throws {
+        let dir = try FileManager.default.url(for: .libraryDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let url = dir.appendingPathComponent(fileName)
+        var items: [[String: String]] = []
+        if let data = try? Data(contentsOf: url), let existing = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] {
+            items = existing
+        }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        items.append([
+            "id": UUID().uuidString,
+            "at": iso.string(from: Date()),
+            "amount": amount,
+            "merchant": merchant,
+            "card": card
+        ])
+        let out = try JSONSerialization.data(withJSONObject: items)
+        try out.write(to: url, options: .atomic)
+    }
+}

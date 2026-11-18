@@ -1482,3 +1482,118 @@ input[type='date'] {
   color: var(--ink-3);
   margin: 6px 0 0;
 }
+
+.plan-once {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.plan-once input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--gold);
+}
+
+.plan-once.is-on {
+  color: var(--gold-light);
+  font-weight: 700;
+}
+
+/* Apple Pay payments to check */
+.applepay-card {
+  border: 1px solid var(--rule-gold);
+  padding: 14px 16px;
+}
+
+.applepay-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.applepay-row + .applepay-row {
+  border-top: 1px solid var(--rule-soft);
+}
+
+.applepay-row > div:first-child {
+  flex: 1;
+}
+
+.applepay-right {
+  text-align: right;
+}
+
+.applepay-right p {
+  margin: 0;
+}
+
+.applepay-x {
+  border: none;
+  background: none;
+  color: var(--ink-3);
+  padding: 6px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.applepay-card .primary-button {
+  margin-top: 10px;
+}
+
+/* numbered setup steps (Settings → Apple Pay) */
+.setup-step {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 0;
+}
+
+.setup-step + .setup-step {
+  border-top: 1px solid var(--rule-soft);
+}
+
+.setup-num {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 99px;
+  background: rgba(201, 169, 106, 0.16);
+  color: var(--gold-light);
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.setup-step p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.setup-step b {
+  color: var(--ink);
+}
+
+.applepay-row .import-chip {
+  white-space: nowrap;
+}
+
+.applepay-right {
+  flex-shrink: 0;
+}
+
+.applepay-right .row-sub {
+  white-space: nowrap;
+  font-size: 12px;
+}

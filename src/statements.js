@@ -285,6 +285,13 @@ function lookup(history, raw, name, accountId, type) {
 
 const GENERIC_LINE = /^(card purchase|non-euro transaction fee|exchanged to|cash withdrawal)/i
 
+// What a shop was filed under before, for a single new payment (Apple Pay):
+// { categoryId, note } or null.
+export function guessFromHistory(name, transactions, accountId, type = 'expense') {
+  const t = lookup(buildHistory(transactions), name, name, accountId, type)
+  return t ? { categoryId: t.categoryId, note: t.note, transfer: Boolean(t.transfer) } : null
+}
+
 const dayDiff = (a, b) => Math.abs(Date.parse(a + 'T00:00:00Z') - Date.parse(b + 'T00:00:00Z')) / 86400000
 
 // Turns a parsed statement into import rows. Each row: { key, date, note,

@@ -44,8 +44,10 @@ EXCHANGE,Current,2026-11-24 08:00:00,2026-11-24 08:00:00,Exchanged to USD,-50.00
 `
 const pr = st.detectStatement(rev)
 ok(pr.bank === 'revolut' && pr.product === 'current', 'Revolut detected')
-ok(pr.rows.length === 5, `reverted skipped, fee split out (${pr.rows.length})`)
-ok(pr.rows.some((r) => r.name === 'Fee: Exchanged to USD' && r.amount === -0.5), 'fee row')
+ok(pr.rows.length === 4, `reverted skipped (${pr.rows.length})`)
+ok(pr.rows.some((r) => r.name === 'Exchanged to USD' && r.amount === -50.5 && r.fee === 0.5), 'a payment and its fee are one row')
+const charge = st.detectStatement(`Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance\nCharge,Current,2026-11-11 01:33:55,2026-11-11 01:33:55,Metal plan fee,0.00,15.99,EUR,COMPLETED,-15.99\n`)
+ok(charge.rows.length === 1 && charge.rows[0].name === 'Metal plan fee' && charge.rows[0].amount === -15.99, 'a plan charge (amount 0, fee only) is one row under its own name')
 ok(pr.endBalance.balance === -603 && pr.endBalance.date === '2026-11-24', 'Revolut closing balance')
 ok(st.detectStatement('hello,world\n1,2') === null, 'unknown file')
 
@@ -126,7 +128,7 @@ await db.importBackup({
   ft_transactions: []
 })
 const res = await db.importStatementRows(prepR.rows.map((r) => ({ ...r, categoryId: r.categoryId || 'other' })))
-ok(res.added === 5 && res.billsMarked === 1, `saved (${JSON.stringify(res)})`)
+ok(res.added === 4 && res.billsMarked === 1, `saved (${JSON.stringify(res)})`)
 const saved = await db.getTransactions()
 const pay = saved.find((t) => t.bankNote === 'Bankinter')
 ok(pay.transfer && pay.counterAccountId === 'avant' && pay.source === 'import', 'saved as a transfer to the card, with the bank text kept')

@@ -141,8 +141,11 @@ function parseRevolut(rows) {
     const currency = (r[c.currency] || 'EUR').trim()
     const bal = money(r[c.balance])
     if (bal != null && (!end || doneAt > end.at)) end = { at: doneAt, date: doneAt.slice(0, 10), balance: bal }
-    if (amount !== 0) out.push({ date: when, name: desc, bankNote: desc, amount, currency, type: (r[c.type] || '').trim() })
-    if (fee) out.push({ date: when, name: `Fee: ${desc}`, bankNote: `Fee: ${desc}`, amount: -Math.abs(fee), currency, type: 'FEE' })
+    // A payment and its fee are one movement: Revolut's balance (and its PDF
+    // statement) take them off together, so Gild keeps them as one row. A
+    // plan charge comes as Amount 0 with the fee alone ("Metal plan fee").
+    const total = Math.round((amount - Math.abs(fee)) * 100) / 100
+    if (total !== 0) out.push({ date: when, name: desc, bankNote: desc, amount: total, currency, type: (r[c.type] || '').trim(), ...(fee ? { fee: Math.abs(fee) } : {}) })
   }
   const main = [...products.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'Current'
   return {
